@@ -2,7 +2,10 @@ import math
 import numpy as np
 from cartpole import CartPole
 from typing import Tuple
-# test
+from concurrent.futures import ThreadPoolExecutor
+import os
+
+
 
 class MPPIControllerForCartPole():
     def __init__(
@@ -59,31 +62,42 @@ class MPPIControllerForCartPole():
         # sample noise
         epsilon = self._calc_epsilon(self.Sigma, self.K, self.T) # size is self.K x self.T
 
-        # loop for 0 ~ K-1 samples
-        for k in range(self.K):         
+        # rollout one sample trajectory
+        def rollout_one_sample(k: int) -> float:
             # prepare buffer
-            v = np.zeros((self.T)) # control input sequence with noise
+            v = np.zeros((self.T))
 
-            # set initial(t=0) state x i.e. observed state of the cartpole
-            x = x0
+            # set initial state
+            x = x0.copy()
+
+            # sample cost
+            S_k = 0.0
 
             # loop for time step t = 1 ~ T
-            for t in range(1, self.T+1):
+            for t in range(1, self.T + 1):
 
                 # get control input with noise
-                if k < (1.0-self.param_exploration)*self.K:
-                    v[t-1] = u[t-1] + epsilon[k, t-1] # sampling for exploitation
+                if k < (1.0 - self.param_exploration) * self.K:
+                    v[t-1] = u[t-1] + epsilon[k, t-1]
                 else:
-                    v[t-1] = epsilon[k, t-1] # sampling for exploration
+                    v[t-1] = epsilon[k, t-1]
 
                 # update x
                 x = self._F(x, self._g(v[t-1]))
 
                 # add stage cost
-                S[k] += self._c(x) + self.param_gamma * u[t-1] * (1.0/self.Sigma) * v[t-1]
+                S_k += self._c(x) + self.param_gamma * u[t-1] * (1.0 / self.Sigma) * v[t-1]
 
             # add terminal cost
-            S[k] += self._phi(x)
+            S_k += self._phi(x)
+
+            return S_k
+
+        # parallelize k-loop
+        max_workers = os.cpu_count()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            S = np.array(list(executor.map(rollout_one_sample, range(self.K))))
 
         # compute information theoretic weights for each sample
         w = self._compute_weights(S)
