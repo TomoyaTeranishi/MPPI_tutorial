@@ -45,66 +45,80 @@ class MPPIControllerForPendulum():
         self.u_prev = np.zeros((self.T))
 
     def calc_control_input(self, observed_x: np.ndarray) -> Tuple[float, np.ndarray]:
-        """calculate optimal control input"""
-        # load privious control input sequence
-        u = self.u_prev
+        """calculate optimal control input with vectorized K samples"""
+
+        # load previous control input sequence
+        u = self.u_prev.copy()
 
         # set initial x value from observation
-        x0 = observed_x
+        x0 = np.asarray(observed_x, dtype=float).copy()
 
-        # prepare buffer
-        S = np.zeros((self.K)) # state cost list
+        # sample noise: shape is (K, T)
+        epsilon = self._calc_epsilon(self.Sigma, self.K, self.T)
 
-        # sample noise
-        epsilon = self._calc_epsilon(self.Sigma, self.K, self.T) # size is self.K x self.T
+        # prepare cost buffer: shape is (K,)
+        S = np.zeros(self.K)
 
-        # loop for 0 ~ K-1 samples
-        for k in range(self.K):         
-            # prepare buffer
-            v = np.zeros((self.T)) # control input sequence with noise
+        # prepare noisy control input sequence: shape is (K, T)
+        v = np.zeros((self.K, self.T))
 
-            # set initial(t=0) state x i.e. observed state of the pendulum
-            x = x0
+        num_exploitation = int((1.0 - self.param_exploration) * self.K)
 
-            # loop for time step t = 1 ~ T
-            for t in range(1, self.T+1):
+        # exploitation: v = u + epsilon
+        if num_exploitation > 0:
+            v[:num_exploitation, :] = (
+                u[None, :] + epsilon[:num_exploitation, :]
+            )
 
-                # get control input with noise
-                if k < (1.0-self.param_exploration)*self.K:
-                    v[t-1] = u[t-1] + epsilon[k, t-1] # sampling for exploitation
-                else:
-                    v[t-1] = epsilon[k, t-1] # sampling for exploration
+        # exploration: v = epsilon
+        if num_exploitation < self.K:
+            v[num_exploitation:, :] = epsilon[num_exploitation:, :]
 
-                # update x
-                x = self._F(x, self._g(v[t-1]))
+        # K本分の状態をまとめて持つ: shape is (K, 2)
+        x = np.tile(x0, (self.K, 1)).astype(float)
 
-                # add stage cost
-                S[k] += self._c(x) + self.param_gamma * u[t-1] * (1.0/self.Sigma) * v[t-1]
+        # rollout all K samples at once
+        for t in range(self.T):
 
-            # add terminal cost
-            S[k] += self._phi(x)
+            # raw sampled input: shape is (K,)
+            v_t_raw = v[:, t]
 
-        # compute information theoretic weights for each sample
+            # clamp input: shape is (K,)
+            v_t = self._g_batch(v_t_raw)
+
+            # update K states at once
+            x = self._F_batch(x, v_t)
+
+            # add stage cost for all K samples
+            S += self._c_batch(x)
+
+            # add MPPI control cost term
+            S += self.param_gamma * u[t] * (1.0 / self.Sigma) * v_t_raw
+
+        # add terminal cost
+        S += self._phi_batch(x)
+
+        # compute information theoretic weights
         w = self._compute_weights(S)
 
-        # calculate w_k * epsilon_k
-        w_epsilon = np.zeros((self.T))
-        for t in range(0, self.T): # loop for time step t = 0 ~ T-1
-            for k in range(self.K):
-                w_epsilon[t] += w[k] * epsilon[k, t]
+        # calculate weighted noise: shape is (T,)
+        w_epsilon = np.sum(w[:, None] * epsilon, axis=0)
 
         # apply moving average filter for smoothing input sequence
         w_epsilon = self._moving_average_filter(xx=w_epsilon, window_size=5)
 
         # update control input sequence
-        u += w_epsilon
+        u = u + w_epsilon
 
-        # update privious control input sequence (shift 1 step to the left)
+        # clamp updated input sequence
+        u = np.clip(u, -self.max_torque, self.max_torque)
+
+        # update previous control input sequence
         self.u_prev[:-1] = u[1:]
         self.u_prev[-1] = u[-1]
 
         # return optimal control input and input sequence
-        return u[0], u 
+        return u[0], u
 
     def _calc_epsilon(self, sigma: float, size_sample: int, size_time_step: int) -> np.ndarray:
         """sample epsilon"""
@@ -156,23 +170,98 @@ class MPPIControllerForPendulum():
         # return updated state
         x_t_plus_1 = np.array([new_theta, new_theta_dot])
         return x_t_plus_1
+    
+    def _g_batch(self, v: np.ndarray) -> np.ndarray:
+        """clamp input for all samples
+
+        v: shape is (K,)
+        """
+        return np.clip(v, -self.max_torque, self.max_torque)
+
+    def _F_batch(self, x_t: np.ndarray, v_t: np.ndarray) -> np.ndarray:
+        """calculate next states of the pendulum for all samples
+
+        x_t: shape is (K, 2)
+        v_t: shape is (K,)
+        """
+
+        x_t = np.asarray(x_t, dtype=float)
+        v_t = np.asarray(v_t, dtype=float)
+
+        theta = x_t[:, 0]
+        theta_dot = x_t[:, 1]
+
+        g = self.g
+        m = self.mass_of_pole
+        l = self.length_of_pole
+        dt = self.delta_t
+
+        torque = v_t
+
+        new_theta_dot = theta_dot + (
+            3.0 * g / (2.0 * l) * np.sin(theta)
+            + 3.0 / (m * l**2) * torque
+        ) * dt
+
+        new_theta_dot = np.clip(
+            new_theta_dot,
+            -self.max_speed,
+            self.max_speed
+        )
+
+        new_theta = theta + new_theta_dot * dt
+
+        x_next = np.empty((x_t.shape[0], 2), dtype=float)
+        x_next[:, 0] = new_theta
+        x_next[:, 1] = new_theta_dot
+
+        return x_next
+
+    def _c_batch(self, x_t: np.ndarray) -> np.ndarray:
+        """calculate stage cost for all samples
+
+        x_t: shape is (K, 2)
+        """
+
+        theta = x_t[:, 0]
+        theta_dot = x_t[:, 1]
+
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        stage_cost = (
+            self.stage_cost_weight[0] * theta**2
+            + self.stage_cost_weight[1] * theta_dot**2
+        )
+
+        return np.asarray(stage_cost, dtype=float)
+
+    def _phi_batch(self, x_T: np.ndarray) -> np.ndarray:
+        """calculate terminal cost for all samples
+
+        x_T: shape is (K, 2)
+        """
+
+        theta = x_T[:, 0]
+        theta_dot = x_T[:, 1]
+
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
+
+        terminal_cost = (
+            self.terminal_cost_weight[0] * theta**2
+            + self.terminal_cost_weight[1] * theta_dot**2
+        )
+
+        return np.asarray(terminal_cost, dtype=float)
 
     def _compute_weights(self, S: np.ndarray) -> np.ndarray:
         """compute weights for each sample"""
-        # prepare buffer
-        w = np.zeros((self.K))
 
-        # calculate rho
-        rho = S.min()
+        rho = np.min(S)
 
-        # calculate eta
-        eta = 0.0
-        for k in range(self.K):
-            eta += np.exp( (-1.0/self.param_lambda) * (S[k]-rho) )
+        w = np.exp((-1.0 / self.param_lambda) * (S - rho))
 
-        # calculate weight
-        for k in range(self.K):
-            w[k] = (1.0 / eta) * np.exp( (-1.0/self.param_lambda) * (S[k]-rho) )
+        w = w / np.sum(w)
+
         return w
 
     def _moving_average_filter(self, xx: np.ndarray, window_size: int) -> np.ndarray:
