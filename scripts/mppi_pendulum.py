@@ -1,12 +1,17 @@
 import math
 import numpy as np
-from pendulum import Pendulum
+try:
+    # scriptsパッケージとして読み込まれた場合
+    from .pendulum import Pendulum
+except ImportError:
+    # mppi_pendulum.pyを直接実行した場合
+    from pendulum import Pendulum    
 from typing import Tuple
 
 class MPPIControllerForPendulum():
     def __init__(
             self,
-            delta_t: float = 0.05,
+            prediction_delta_t: float = 0.05,
             mass_of_pole: float = 1.0,
             length_of_pole: float = 1.0,
             max_torque_abs: float = 2.0,
@@ -19,8 +24,10 @@ class MPPIControllerForPendulum():
             sigma: float = 1.0,
             stage_cost_weight: np.ndarray = np.array([1.0, 0.1]),
             terminal_cost_weight: np.ndarray = np.array([1.0, 0.1]),
+            seed: int = 0,
     ) -> None:
         """initialize mppi controller for pendulum"""
+        # Pendulum用MPPIコントローラの初期化
         # mppi parameters
         self.dim_u = 1 # dimension of control input vector
         self.T = horizon_step_T # prediction horizon
@@ -29,13 +36,14 @@ class MPPIControllerForPendulum():
         self.param_lambda = param_lambda  # constant parameter of mppi
         self.param_alpha = param_alpha # constant parameter of mppi
         self.param_gamma = self.param_lambda * (1.0 - (self.param_alpha))  # constant parameter of mppi
-        self.Sigma = sigma # deviation of noise
+        self.Sigma = sigma # 探索ノイズの標準偏差
+        self.rng = np.random.default_rng(seed=seed) # 同じseedを指定すると、同じノイズ列を再現できる
         self.stage_cost_weight = stage_cost_weight
         self.terminal_cost_weight = terminal_cost_weight
 
         # pendulum parameters
         self.g = 9.81
-        self.delta_t = delta_t
+        self.prediction_delta_t = prediction_delta_t
         self.mass_of_pole = mass_of_pole
         self.length_of_pole = length_of_pole
         self.max_torque = max_torque_abs
@@ -122,7 +130,7 @@ class MPPIControllerForPendulum():
 
     def _calc_epsilon(self, sigma: float, size_sample: int, size_time_step: int) -> np.ndarray:
         """sample epsilon"""
-        epsilon = np.random.normal(0.0, sigma, (self.K, self.T)) # size is self.K x self.T
+        epsilon = self.rng.normal(0.0, sigma, (self.K, self.T)) # size is self.K x self.T
         return epsilon
 
     def _g(self, v: np.ndarray) -> float:
@@ -151,26 +159,34 @@ class MPPIControllerForPendulum():
         return terminal_cost
 
     def _F(self, x_t: np.ndarray, v_t: np.ndarray) -> np.ndarray:
+        # k本のサンプル軌道について、振り子の次の状態を計算する
         """calculate next state of the pendulum"""
         # get previous state variables
-        theta, theta_dot = x_t[0], x_t[1]
+        theta, theta_dot = x_t[:, 0], x_t[:, 1]
 
-        # prepare params
+        # 振り子の物理パラメータ
         g = self.g
         m = self.mass_of_pole
         l = self.length_of_pole
-        dt = self.delta_t
+        # MPPI内部モデルの予測周期 Δt        
+        dt = self.prediction_delta_t
 
-        # calculate next state
-        torque = v_t
+        # k個のトルクを、[-max_torque, max_torque]の範囲に制限する
+        torque = np.clip(v_t, -self.max_torque, self.max_torque,)
+        #　角速度を更新する
         new_theta_dot = theta_dot + (3 * g / (2 * l) * np.sin(theta) + 3.0 / (m * l**2) * torque) * dt
+        #　角速度を[-max_speed, max_speed]の範囲に制限する
         new_theta_dot = np.clip(new_theta_dot, -self.max_speed, self.max_speed)
+        #　角度を更新する
         new_theta = theta + new_theta_dot * dt
+        # 角度を[-pi, pi]の範囲に正規化
+        new_theta = ((new_theta + np.pi) % (2 * np.pi)) - np.pi
 
-        # return updated state
-        x_t_plus_1 = np.array([new_theta, new_theta_dot])
-        return x_t_plus_1
-    
+        # thetaとtheta_dotを列方向に並べて、(K, 2)の形状の配列として返す
+        return np.column_stack(
+            (new_theta, new_theta_dot)
+        )
+
     def _g_batch(self, v: np.ndarray) -> np.ndarray:
         """clamp input for all samples
 
@@ -194,7 +210,7 @@ class MPPIControllerForPendulum():
         g = self.g
         m = self.mass_of_pole
         l = self.length_of_pole
-        dt = self.delta_t
+        dt = self.prediction_delta_t
 
         torque = v_t
 
@@ -281,12 +297,40 @@ class MPPIControllerForPendulum():
 
 def run_simulation_mppi_pendulum() -> None:
     """run simulation of swinging up pendulum with MPPI controller"""
+    # MPPIを用いてPendulumの振り上げシミュレーションを実行する
     print("[INFO] Start simulation of swinging up a pendulum with MPPI controller")
 
     # simulation settings
-    delta_t = 0.05 # [sec]
-    sim_steps = 150 # [steps]
-    print(f"[INFO] delta_t : {delta_t:.2f}[s] , sim_steps : {sim_steps}[steps], total_sim_time : {delta_t*sim_steps:.2f}[s]")
+    # 実環境へ制御入力を適用する周期 Ts
+    control_delta_t = 0.05 # [sec]
+
+    # MPPI内部モデルの予測周期 Δt
+    prediction_delta_t = 0.05 # [sec]
+
+    # シミュレーション全体の実行時間
+    simulation_time = 7.5
+
+    # 制御周期から実行ステップ数を計算する
+    simulation_steps = int(
+        simulation_time / control_delta_t
+    )
+
+    print(
+        f"[INFO] control_delta_t : "
+        f"{control_delta_t:.2f}[s]"
+    )
+    print(
+        f"[INFO] prediction_delta_t : "
+        f"{prediction_delta_t:.2f}[s]"
+    )
+    print(
+        f"[INFO] simulation_steps : "
+        f"{simulation_steps}[steps]"
+    )
+    print(
+        f"[INFO] total_simulation_time : "
+        f"{control_delta_t * simulation_steps:.2f}[s]"
+    )
 
     # initialize a pendulum as a control target
     pendulum = Pendulum(
@@ -294,7 +338,8 @@ def run_simulation_mppi_pendulum() -> None:
         length_of_pole = 1.0,
         max_torque_abs = 2.0,
         max_speed_abs = 8.0,
-        delta_t = delta_t,
+        # 実環境は制御周期Tsで状態を更新する
+        delta_t = control_delta_t,
         visualize = True,
     )
     pendulum.reset(
@@ -303,7 +348,8 @@ def run_simulation_mppi_pendulum() -> None:
 
     # initialize a mppi controller for the pendulum
     mppi = MPPIControllerForPendulum(
-        delta_t = delta_t,
+        # MPPI内部モデルの予測周期Δt
+        prediction_delta_t = prediction_delta_t,
         mass_of_pole = 1.0,
         length_of_pole = 1.0,
         max_torque_abs = 2.0,
@@ -316,28 +362,42 @@ def run_simulation_mppi_pendulum() -> None:
         sigma = 1.0,
         stage_cost_weight    = np.array([1.0, 0.1]), # weight for [theta, theta_dot]
         terminal_cost_weight = 5.0 * np.array([1.0, 0.1]), # weight for [theta, theta_dot]
+        seed = 1,
     )
 
     # simulation loop
-    for i in range(sim_steps):
+    # シミュレーションループ
+    for step in range(simulation_steps):
 
-        # get current state of pendulum
+        # 現在の振り子状態を取得する
+        # current_state[0]：角度
+        # current_state[1]：角速度
         current_state = pendulum.get_state()
 
-        # calculate input force with MPPI
+        # MPPIで制御入力を計算する
         input_torque, input_torque_sequence = mppi.calc_control_input(
-            observed_x = current_state
+            observed_x=current_state,
         )
 
-        # print current state and input torque
-        print(f"Time: {i*delta_t:>2.2f}[s], theta={current_state[0]:>+3.3f}[rad], theta_dot={current_state[1]:>+3.3f}[rad/s], input torque={input_torque:>+3.2f}[Nm]", end="")
-        print(", # currently staying upright #" if abs(current_state[0]) < 0.1 and abs(current_state[1] < 0.1) else "")
+        # 現在時刻は実環境の制御周期から計算する
+        current_time = step * control_delta_t
 
-        # update states of pendulum
-        pendulum.update(u=[input_torque], delta_t=delta_t)
+        # 現在の状態と制御入力を表示する
+        print(
+            f"Time: {current_time:>2.2f}[s], "
+            f"theta={current_state[0]:>+3.3f}[rad], "
+            f"theta_dot={current_state[1]:>+3.3f}[rad/s], "
+            f"input torque={input_torque:>+3.2f}[Nm]"
+        )
+
+        # 実環境を制御周期Tsだけ進める
+        pendulum.update(
+            u=np.array([input_torque]),
+            delta_t=control_delta_t,
+        )
 
     # save animation
-    pendulum.save_animation("mppi_pendulum.mp4", interval=int(delta_t * 1000), movie_writer="ffmpeg") # ffmpeg is required to write mp4 file
+    pendulum.save_animation("mppi_pendulum.mp4", interval=int(control_delta_t * 1000), movie_writer="ffmpeg") # ffmpeg is required to write mp4 file
 
 
 if __name__ == "__main__":
