@@ -4,7 +4,6 @@ try:
     # scriptsパッケージとして読み込まれた場合
     from .pendulum import Pendulum
 except ImportError:
-    # mppi_pendulum.pyを直接実行した場合
     from pendulum import Pendulum    
 from typing import Tuple
 

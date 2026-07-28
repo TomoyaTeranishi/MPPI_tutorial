@@ -233,20 +233,20 @@ def plot_heatmap(
     output_path: Path,
     value_format: str,
     color_map: str,
-    minimum_value: float | None = None,
-    maximum_value: float | None = None,
+    minimum_value: np.ndarray  | None = None,
+    maximum_value: np.ndarray  | None = None,
     time_grid: np.ndarray | None = None,
 ) -> None:
     """1枚のヒートマップを作成して保存する。"""
 
     figure, axis = plt.subplots(
-        figsize=(8, 6)
+        figsize=(7, 7)
     )
 
     image = axis.imshow(
         value_grid,
         origin="lower",
-        aspect="auto",
+        aspect="equal",
         cmap=color_map,
         vmin=minimum_value,
         vmax=maximum_value,
@@ -266,7 +266,7 @@ def plot_heatmap(
 
     axis.set_xticks(x_tick_positions)
     axis.set_xticklabels(x_tick_labels)
-    axis.set_xlabel("Prediction steps N")
+    axis.set_xlabel("Prediction steps (N)")
 
 
     # 縦軸：サンプル数K
@@ -283,13 +283,15 @@ def plot_heatmap(
 
     axis.set_yticks(y_tick_positions)
     axis.set_yticklabels(y_tick_labels)
-    axis.set_ylabel("Number of samples K")
+    axis.set_ylabel("Number of samples (K)")
 
     axis.set_title(title)
 
     colorbar = figure.colorbar(
         image,
         ax=axis,
+        shrink = 0.75,
+        pad = 0.04,
     )
     colorbar.set_label(colorbar_label)
 
@@ -371,8 +373,7 @@ def main() -> None:
             f"Prediction dt = {dt_ms} ms"
         ),
         colorbar_label=(
-            "Mean total cost "
-            "(lower is better)"
+            "total cost "
         ),
         output_path=(
             FIGURE_DIRECTORY
@@ -396,7 +397,6 @@ def main() -> None:
         ),
         colorbar_label=(
             "Success rate "
-            "(higher is better)"
         ),
         output_path=(
             FIGURE_DIRECTORY
