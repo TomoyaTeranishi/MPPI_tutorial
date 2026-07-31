@@ -31,8 +31,10 @@ FIGURE_DIRECTORY = (
     / "pendulum"
 )
 
-# 今回描画する予測周期
-TARGET_PREDICTION_DELTA_T = 0.02
+# ★★今回描画する予測周期★★
+# python -m scripts.analysis.plot_pendulum_heatmaps　実行コマンド
+
+TARGET_PREDICTION_DELTA_T = 0.20
 
 # 実時間制約を表す計算時間
 REAL_TIME_LIMIT_MS = 20.0
@@ -233,8 +235,8 @@ def plot_heatmap(
     output_path: Path,
     value_format: str,
     color_map: str,
-    minimum_value: np.ndarray  | None = None,
-    maximum_value: np.ndarray  | None = None,
+    minimum_value: float | None = None,
+    maximum_value: float | None = None,
     time_grid: np.ndarray | None = None,
 ) -> None:
     """1枚のヒートマップを作成して保存する。"""
@@ -381,6 +383,9 @@ def main() -> None:
         ),
         value_format=".1f",
         color_map="turbo",
+        # 総コスト図だけ800～3000に固定する
+        minimum_value=800.0,
+        maximum_value=3000.0,
         time_grid=time_grid,
     )
 
@@ -412,25 +417,27 @@ def main() -> None:
     # --------------------------------------------------------
     # 平均計算時間
     # --------------------------------------------------------
-    plot_heatmap(
-        value_grid=time_grid,
-        K_values=K_values,
-        N_values=N_values,
-        title=(
-            "Pendulum Mean Computation Time\n"
-            f"Prediction dt = {dt_ms} ms"
-        ),
-        colorbar_label=(
-            "Mean computation time [ms]"
-        ),
-        output_path=(
-            FIGURE_DIRECTORY
-            / f"compute_time_dt{dt_ms:03d}.png"
-        ),
-        value_format=".3f",
-        color_map="turbo",
-        time_grid=time_grid,
-    )
+    # 計算時間ヒートマップは予測周期ごとには生成しない
+    # 計算量は主にKとNで決まり、卒論でも共通の図として扱われている
+    # plot_heatmap(
+    #     value_grid=time_grid,
+    #     K_values=K_values,
+    #     N_values=N_values,
+    #     title=(
+    #         "Pendulum Mean Computation Time\n"
+    #         f"Prediction dt = {dt_ms} ms"
+    #     ),
+    #     colorbar_label=(
+    #         "Mean computation time [ms]"
+    #     ),
+    #     output_path=(
+    #         FIGURE_DIRECTORY
+    #         / f"compute_time_dt{dt_ms:03d}.png"
+    #     ),
+    #     value_format=".3f",
+    #     color_map="turbo",
+    #     time_grid=time_grid,
+    # )
 
     print()
     print(

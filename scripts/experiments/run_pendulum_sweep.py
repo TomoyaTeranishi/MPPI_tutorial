@@ -1,3 +1,4 @@
+#　条件を変えながら繰り替えし、結果を保存する
 import csv
 from pathlib import Path
 
@@ -29,17 +30,18 @@ K_VALUES = [
     2000,
 ]
 
-# 卒論の基準実験で使用する予測ステップ数N
+# 卒論の基準実験で使用する予測ステップ数N　5,10,....,95,100
 N_VALUES = list(range(5, 101, 5))
 
-# 各条件について5試行を行う
+# 同じK,N,Δtについて、5種類の探索noiseで評価する　成功率の割合はこのseedの成功数に相当する
 SEEDS = [0, 1, 2, 3, 4]
 
 # 実環境の制御周期Tsを20 msに固定する
 CONTROL_DELTA_T = 0.02
 
-# MPPI内部モデルの予測周期Δtを20 msに固定する
-PREDICTION_DELTA_T = 0.02
+#python -m scripts.experiments.run_pendulum_sweep 　実行コマンド
+# MPPI内部モデルの予測周期Δt
+PREDICTION_DELTA_T = 0.20
 
 # 1試行当たりの実行時間
 SIMULATION_TIME = 7.5
@@ -257,107 +259,110 @@ def load_raw_results() -> list:
 
 def aggregate_results(
     raw_results: list[dict],
-) -> list: 
-    """同じK、N、予測周期の5試行を集約する。"""
+) -> list[dict]:
+    """予測周期、K、Nごとに試行結果を集約する。"""
 
     summary_results = []
 
-    for K in K_VALUES:
-        for N in N_VALUES:
+    # raw CSVに保存されている予測周期を昇順で取得する
+    prediction_delta_t_values = sorted(
+        {
+            result["prediction_delta_t"]
+            for result in raw_results
+            if result["environment"] == "pendulum"
+        }
+    )
 
-            # 現在のK、N、制御周期、予測周期と一致する試行を抽出する
-            matching_results = [
-                result
-                for result in raw_results
-                if result["environment"] == "pendulum"
-                and result["K"] == K
-                and result["N"] == N
-                and np.isclose(
-                    result["control_delta_t"],
-                    CONTROL_DELTA_T,
+    for prediction_delta_t in prediction_delta_t_values:
+        for K in K_VALUES:
+            for N in N_VALUES:
+
+                # 現在の予測周期、K、Nに一致する結果を抽出する
+                matching_results = [
+                    result
+                    for result in raw_results
+                    if result["environment"] == "pendulum"
+                    and result["K"] == K
+                    and result["N"] == N
+                    and np.isclose(
+                        result["control_delta_t"],
+                        CONTROL_DELTA_T,
+                    )
+                    and np.isclose(
+                        result["prediction_delta_t"],
+                        prediction_delta_t,
+                    )
+                    and result["seed"] in SEEDS
+                ]
+
+                if not matching_results:
+                    continue
+
+                # seed順に並べる
+                matching_results.sort(
+                    key=lambda result: result["seed"]
                 )
-                and np.isclose(
-                    result["prediction_delta_t"],
-                    PREDICTION_DELTA_T,
+
+                total_costs = np.array(
+                    [
+                        result["total_cost"]
+                        for result in matching_results
+                    ],
+                    dtype=float,
                 )
-                and result["seed"] in SEEDS
-            ]
 
-            # 該当する試行がなければ集約しない
-            if not matching_results:
-                continue
+                successes = np.array(
+                    [
+                        result["success"]
+                        for result in matching_results
+                    ],
+                    dtype=float,
+                )
 
-            # seedの順番で並べる
-            matching_results.sort(
-                key=lambda result: result["seed"]
-            )
+                mean_compute_times = np.array(
+                    [
+                        result["mean_compute_time_ms"]
+                        for result in matching_results
+                    ],
+                    dtype=float,
+                )
 
-            # 総コストを配列へ変換する
-            total_costs = np.array(
-                [
-                    result["total_cost"]
-                    for result in matching_results
-                ],
-                dtype=float,
-            )
+                max_compute_times = np.array(
+                    [
+                        result["max_compute_time_ms"]
+                        for result in matching_results
+                    ],
+                    dtype=float,
+                )
 
-            # Trueを1、Falseを0として成功率を計算する
-            successes = np.array(
-                [
-                    result["success"]
-                    for result in matching_results
-                ],
-                dtype=float,
-            )
-
-            # 各試行の平均計算時間
-            mean_compute_times = np.array(
-                [
-                    result["mean_compute_time_ms"]
-                    for result in matching_results
-                ],
-                dtype=float,
-            )
-
-            # 各試行の最大計算時間
-            max_compute_times = np.array(
-                [
-                    result["max_compute_time_ms"]
-                    for result in matching_results
-                ],
-                dtype=float,
-            )
-
-            summary = {
-                "environment": "pendulum",
-                "K": K,
-                "N": N,
-                "control_delta_t": CONTROL_DELTA_T,
-                "prediction_delta_t": PREDICTION_DELTA_T,
-                "number_of_trials": len(
-                    matching_results
-                ),
-                "mean_total_cost": float(
-                    np.mean(total_costs)
-                ),
-                "std_total_cost": float(
-                    np.std(total_costs)
-                ),
-                "success_rate": float(
-                    np.mean(successes)
-                ),
-                "mean_compute_time_ms": float(
-                    np.mean(mean_compute_times)
-                ),
-                "std_compute_time_ms": float(
-                    np.std(mean_compute_times)
-                ),
-                "max_compute_time_ms": float(
-                    np.max(max_compute_times)
-                ),
-            }
-
-            summary_results.append(summary)
+                summary_results.append(
+                    {
+                        "environment": "pendulum",
+                        "K": K,
+                        "N": N,
+                        "control_delta_t": CONTROL_DELTA_T,
+                        "prediction_delta_t": prediction_delta_t,
+                        "number_of_trials": len(matching_results),
+                        "mean_total_cost": float(
+                            np.mean(total_costs)
+                        ),
+                        "std_total_cost": float(
+                            np.std(total_costs)
+                        ),
+                        "success_rate": float(
+                            np.mean(successes)
+                        ),
+                        "mean_compute_time_ms": float(
+                            np.mean(mean_compute_times)
+                        ),
+                        "std_compute_time_ms": float(
+                            np.std(mean_compute_times)
+                        ),
+                        "max_compute_time_ms": float(
+                            np.max(max_compute_times)
+                        ),
+                    }
+                )
 
     return summary_results
 
@@ -432,6 +437,7 @@ def run_sweep() -> None:
                     print(
                         f"[SKIP] "
                         f"{trial_counter}/{total_trial_count} "
+                        f"prediction_dt={PREDICTION_DELTA_T:.2f}, "
                         f"K={K}, N={N}, seed={seed}"
                     )
                     continue
@@ -439,6 +445,7 @@ def run_sweep() -> None:
                 print(
                     f"[RUN ] "
                     f"{trial_counter}/{total_trial_count} "
+                    f"prediction_dt={PREDICTION_DELTA_T:.2f}, "
                     f"K={K}, N={N}, seed={seed}"
                 )
 

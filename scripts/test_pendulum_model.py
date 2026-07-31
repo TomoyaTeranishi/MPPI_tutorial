@@ -1,8 +1,8 @@
 #　環境モデルとMPPI内部モデルの1ステップ結果が一致するか確認するテストコード
 import numpy as np
 
-from pendulum import Pendulum
-from mppi_pendulum import MPPIControllerForPendulum
+from scripts.pendulum import Pendulum
+from scripts.mppi_pendulum import MPPIControllerForPendulum
 
 
 def test_one_step_model_match() -> None:

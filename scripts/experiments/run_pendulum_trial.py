@@ -1,3 +1,5 @@
+# 1つの条件・1つのseedについて、一回の実験を最初から最後まで実行するファイル
+# 1条件だけを確認したいときにも使える　7.5秒間の制御を実行し、総コスト、成功・失敗、計算時間を返すファイル
 import time
 
 import numpy as np
@@ -23,7 +25,8 @@ def calculate_evaluation_cost(
     theta = normalize_angle(state[0])
     theta_dot = state[1]
 
-    # Pendulumの評価用コスト
+    # Pendulumの評価用コスト (3.37) のちに制御ループで375回足す
+    #最終的な制御性能を比較する評価コスト（状態+入力）
     # theta^2 + 0.1 * theta_dot^2 + 0.1 * torque^2
     cost = (
         theta**2
@@ -50,12 +53,12 @@ def is_pendulum_success(
     theta = normalize_angle(recent_states[:, 0])
     theta_dot = recent_states[:, 1]
 
-    # 最後の10ステップすべてで角度条件を満たすか確認する
+    # 最後の10ステップすべてで角度条件を満たすか確認する　（3.46）
     angle_condition = np.all(
         np.abs(theta) <= 0.1
     )
 
-    # 最後の10ステップすべてで角速度条件を満たすか確認する
+    # 最後の10ステップすべてで角速度条件を満たすか確認する　（3.46）
     speed_condition = np.all(
         np.abs(theta_dot) <= 0.1
     )
@@ -106,14 +109,16 @@ def run_pendulum_trial(
         max_speed_abs=8.0,
         horizon_step_T=N,
         number_of_samples_K=K,
-        param_exploration=0.05,
-        param_lambda=0.5,
-        param_alpha=0.8,
+        param_exploration=0.05, #探索noise
+        param_lambda=0.5, #コストの差を重みにどれくらい強く反映するかを決める値
+        param_alpha=0.8, #探索用のサンプルの割合を決める
         sigma=1.0,
+        #（2.11）
         stage_cost_weight=np.array(
             [1.0, 0.1],
             dtype=float,
         ),
+        # (2.8)
         terminal_cost_weight=5.0 * np.array(
             [1.0, 0.1],
             dtype=float,
@@ -134,17 +139,18 @@ def run_pendulum_trial(
         # MPPIの制御入力計算だけを測定する
         start_time = time.perf_counter()
 
+        #MPPIによる制御入力の計算
         input_torque, _ = controller.calc_control_input(
             observed_x=current_state,
         )
-
+        #各ステップの計算時間を保存
         elapsed_ms = (
             time.perf_counter() - start_time
         ) * 1000.0
 
         compute_times_ms.append(elapsed_ms)
 
-        # 実際に適用するトルクを許容範囲内に制限する
+        # 実際に適用するトルクを許容範囲内に制限する　（3.2）
         applied_torque = float(
             np.clip(
                 input_torque,
@@ -153,13 +159,13 @@ def run_pendulum_trial(
             )
         )
 
-        # 現在状態と適用入力から評価コストを計算する
+        # 現在状態と適用入力から総コストを計算する (3.37)
         total_cost += calculate_evaluation_cost(
             state=current_state,
             torque=applied_torque,
         )
 
-        # 実環境を制御周期Tsだけ進める
+        # 実環境を制御周期Tsだけ進める (2.3)
         pendulum.update(
             u=np.array([applied_torque]),
             delta_t=control_delta_t,
@@ -213,6 +219,7 @@ def run_pendulum_trial(
         ),
     }
 
+# run_pendulum_trial.pyを単体で実行した場合のみ単体確認で動作する
 if __name__ == "__main__":
 
     # 同じK、N、予測周期について5つのseedで試行する

@@ -1,3 +1,4 @@
+# 入力トルクuを受け取り、振り子の角度θと角速度θ_dotを更新する実環境側のシミュレータ
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
@@ -5,6 +6,7 @@ from matplotlib.animation import ArtistAnimation
 from typing import Tuple
 
 class Pendulum():
+    # 振り子の物理パラメータと描画設定を保存（表3.3）
     def __init__(
             self,
             mass_of_pole: float = 1.0,
@@ -39,8 +41,10 @@ class Pendulum():
         self.visualize_flag = visualize
         self.reset()
 
+    # 初期状態へリセットする
     def reset(
             self, 
+            # θ0=π、 θ_dot0=0.0の状態から開始する
             init_state: np.ndarray = np.array([np.pi, 0.0]), # [theta, theta_dot]
         ) -> None:
         """reset environment to initial state"""
@@ -60,7 +64,8 @@ class Pendulum():
             self.ax.tick_params(labelbottom=False, labelleft=False, labelright=False, labeltop=False)
             self.ax.tick_params(bottom=False, left=False, right=False, top=False)
             self.ax.set_aspect('equal')
-
+    
+    #　トルクuを受け取り、振り子の角度θと角速度θ_dotを更新する
     def update(self, u: np.ndarray, delta_t: float = 0.0, append_frame=True) -> None:
         """update state variables"""
         # get previous state variables
@@ -72,23 +77,28 @@ class Pendulum():
         l = self.length_of_pole
         dt = self.delta_t if delta_t == 0.0 else delta_t
 
+        # 式(3.2)
         torque = np.clip(u, -self.max_torque, self.max_torque)[0]
+        # 式(3.6)
         new_theta_dot = theta_dot + (3 * g / (2 * l) * np.sin(theta) + 3.0 / (m * l**2) * torque) * dt
         new_theta_dot = np.clip(new_theta_dot, -self.max_speed, self.max_speed)
         new_theta = theta + new_theta_dot * dt
         new_theta = ((new_theta + np.pi) % (2 * np.pi)) - np.pi # normalize new_theta to [-pi, pi]
 
         # update state variables
+        #　更新後の状態を保存(2.3)
         self.state = np.array([new_theta, new_theta_dot])
 
         # record frame if necessary
         if append_frame:
             self.append_frame(torque)
 
+    #　現在の状態変数を返す
     def get_state(self) -> np.ndarray:
         """return state variables"""
         return self.state.copy()
 
+    #　アニメーションの1フレームを描画する
     def append_frame(self, torque: float) -> None:
         """draw a frame of the animation."""
         # draw the pendulum
@@ -125,6 +135,7 @@ class Pendulum():
         # append frame
         self.frames.append(frame)
 
+    #　トルクの大きさに応じて、振り子の周りに矢印を描画する
     def _draw_arc_arrow(self, ax: plt.axes, radius: float, cent_x: float, cent_y: float, \
                         angle_s: float, angle_g: float, arrow_loc: str='e', color: str='black') -> list:
         # create the arc
@@ -160,6 +171,7 @@ class Pendulum():
         return [self.ax.add_artist(arc)]+[self.ax.add_artist(head)] # return arrow object
 
     # rotate shape and return location on the x-y plane.
+    #　振り子の形状を回転させ、x-y平面上の座標を返す
     def _affine_transform(self, xlist: list, ylist: list, angle: float, translation: list=[0.0, 0.0]) -> Tuple[list, list]:
         transformed_x = []
         transformed_y = []
@@ -174,6 +186,7 @@ class Pendulum():
         transformed_y.append(transformed_y[0])
         return transformed_x, transformed_y
     
+    #　アニメーションを保存する
     def save_animation(self, filename: str, interval: int, movie_writer: str="ffmpeg") -> None:
         """save animation of the recorded frames (ffmpeg required)"""
         ani = ArtistAnimation(self.fig, self.frames, interval=interval, blit=True)
