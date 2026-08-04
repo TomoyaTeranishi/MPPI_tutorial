@@ -1,13 +1,20 @@
 import math
-import numpy as np
-from cartpole import CartPole
 from typing import Tuple
+
+import numpy as np
+
+try:
+    # scriptsパッケージとして読み込まれた場合
+    from .cartpole import CartPole
+except ImportError:
+    # mppi_cartpole.pyを直接実行した場合
+    from cartpole import CartPole
 
 
 class MPPIControllerForCartPole():
     def __init__(
             self,
-            delta_t: float = 0.02,
+            prediction_delta_t: float = 0.02,
             mass_of_cart: float = 1.0,
             mass_of_pole: float = 0.01,
             length_of_pole: float = 2.0,
@@ -19,7 +26,8 @@ class MPPIControllerForCartPole():
             param_alpha: float = 1.0,
             sigma: float = 10.0,
             stage_cost_weight: np.ndarray = np.array([5.0, 10.0, 0.1, 0.1]), # weight for [x, theta, x_dot, theta_dot]
-            terminal_cost_weight: np.ndarray = np.array([5.0, 10.0, 0.1, 0.1]) # weight for [x, theta, x_dot, theta_dot]
+            terminal_cost_weight: np.ndarray = np.array([5.0, 10.0, 0.1, 0.1]), # weight for [x, theta, x_dot, theta_dot]
+            seed: int = 0,
     ) -> None:
         """initialize mppi controller for cartpole"""
         # mppi parameters
@@ -30,13 +38,16 @@ class MPPIControllerForCartPole():
         self.param_lambda = param_lambda  # constant parameter of mppi
         self.param_alpha = param_alpha # constant parameter of mppi
         self.param_gamma = self.param_lambda * (1.0 - (self.param_alpha))  # constant parameter of mppi
-        self.Sigma = sigma # deviation of noise
-        self.stage_cost_weight = stage_cost_weight
-        self.terminal_cost_weight = terminal_cost_weight
+        # 探索ノイズの標準偏差
+        self.Sigma = sigma
+        # 同じseedでは同じ探索ノイズ系列を生成する
+        self.rng = np.random.default_rng(seed=seed)
+        self.stage_cost_weight = np.asarray(stage_cost_weight, dtype=float,)
+        self.terminal_cost_weight = np.asarray(terminal_cost_weight, dtype=float,)
 
         # cartpole parameters
         self.g = 9.81
-        self.delta_t = delta_t
+        self.prediction_delta_t = prediction_delta_t
         self.mass_of_cart = mass_of_cart
         self.mass_of_pole = mass_of_pole
         self.length_of_pole = length_of_pole
@@ -53,7 +64,10 @@ class MPPIControllerForCartPole():
         u = self.u_prev.copy()
 
         # set initial x value from observation
-        x0 = observed_x.copy()
+        x0 = np.asarray(
+            observed_x,
+            dtype=float,
+        ).copy()
 
         # sample noise: shape is (K, T)
         epsilon = self._calc_epsilon(self.Sigma, self.K, self.T)
@@ -107,7 +121,16 @@ class MPPIControllerForCartPole():
         w_epsilon = np.sum(w[:, None] * epsilon, axis=0)
 
         # apply moving average filter for smoothing input sequence
-        w_epsilon = self._moving_average_filter(xx=w_epsilon, window_size=10)
+        # 予測ステップ数Nより大きい窓幅は使わない
+        filter_window_size = min(
+            10,
+            self.T,
+        )
+
+        w_epsilon = self._moving_average_filter(
+            xx=w_epsilon,
+            window_size=filter_window_size,
+        )
 
         # update control input sequence
         u = u + w_epsilon
@@ -125,7 +148,7 @@ class MPPIControllerForCartPole():
 
     def _calc_epsilon(self, sigma: float, size_sample: int, size_time_step: int) -> np.ndarray:
         """sample epsilon"""
-        epsilon = np.random.normal(0.0, sigma, (self.K, self.T)) # size is self.K x self.T
+        epsilon = self.rng.normal(loc = 0.0, scale = sigma, size=(size_sample, size_time_step)) # size is self.K x self.T
         return epsilon
 
     def _g(self, v: np.ndarray) -> float:
@@ -166,7 +189,7 @@ class MPPIControllerForCartPole():
         m = self.mass_of_pole
         l = self.length_of_pole
         f = v_t
-        dt = self.delta_t
+        dt = self.prediction_delta_t
 
         # get acc. values
         temp = (
@@ -177,16 +200,41 @@ class MPPIControllerForCartPole():
         )
         new_x_ddot = temp + (m*l)  * new_theta_ddot * np.cos(theta) / (M+m)
 
-        # update pos. values
-        theta = theta + theta_dot * dt
-        x = x + x_dot * dt
+        new_x = (
+            x
+            + x_dot * dt
+        )
 
-        # update vel. values
-        theta_dot = theta_dot + new_theta_ddot * dt
-        x_dot = x_dot + new_x_ddot * dt
+        new_theta = (
+            theta
+            + theta_dot * dt
+        )
 
-        # return updated state
-        x_t_plus_1 = np.array([x, theta, x_dot, theta_dot])
+        new_theta = (
+            (new_theta + np.pi)
+            % (2.0 * np.pi)
+        ) - np.pi
+
+        new_x_dot = (
+            x_dot
+            + new_x_ddot * dt
+        )
+
+        new_theta_dot = (
+            theta_dot
+            + new_theta_ddot * dt
+        )
+
+        x_t_plus_1 = np.array(
+            [
+                new_x,
+                new_theta,
+                new_x_dot,
+                new_theta_dot,
+            ],
+            dtype=float,
+        )
+
         return x_t_plus_1
     
     
@@ -216,7 +264,7 @@ class MPPIControllerForCartPole():
         m = self.mass_of_pole
         l = self.length_of_pole
         f = v_t
-        dt = self.delta_t
+        dt = self.prediction_delta_t
 
         # get acc. values
         temp = (
@@ -231,13 +279,37 @@ class MPPIControllerForCartPole():
 
         new_x_ddot = temp + (m * l) * new_theta_ddot * np.cos(theta) / (M + m)
 
-        # update state values
-        x_next = np.empty_like(x_t)
+        # 更新前の速度を使って位置と角度を更新する
+        new_x = x + x_dot * dt
+        new_theta = theta + theta_dot * dt
 
-        x_next[:, 0] = x + x_dot * dt
-        x_next[:, 1] = theta + theta_dot * dt
-        x_next[:, 2] = x_dot + new_x_ddot * dt
-        x_next[:, 3] = theta_dot + new_theta_ddot * dt
+        # 実環境と同じく角度を[-pi, pi)へ正規化する
+        new_theta = (
+            (new_theta + np.pi)
+            % (2.0 * np.pi)
+        ) - np.pi
+
+        # 加速度を使って速度を更新する
+        new_x_dot = (
+            x_dot
+            + new_x_ddot * dt
+        )
+
+        new_theta_dot = (
+            theta_dot
+            + new_theta_ddot * dt
+        )
+
+        # K本の次状態をまとめて返す
+        x_next = np.empty_like(
+            x_t,
+            dtype=float,
+        )
+
+        x_next[:, 0] = new_x
+        x_next[:, 1] = new_theta
+        x_next[:, 2] = new_x_dot
+        x_next[:, 3] = new_theta_dot
 
         return x_next
 
@@ -301,18 +373,94 @@ class MPPIControllerForCartPole():
         return w
 
 
-    def _moving_average_filter(self, xx: np.ndarray, window_size: int) -> np.ndarray:
-        """apply moving average filter for smoothing input sequence
-        Ref. https://zenn.dev/bluepost/articles/1b7b580ab54e95
-        Note: The original MPPI paper uses the Savitzky-Golay Filter for smoothing control inputs.
-        """
-        b = np.ones(window_size)/window_size
-        xx_mean = np.convolve(xx, b, mode="same")
-        n_conv = math.ceil(window_size/2)
-        xx_mean[0] *= window_size/n_conv
-        for i in range(1, n_conv):
-            xx_mean[i] *= window_size/(i+n_conv)
-            xx_mean[-i] *= window_size/(i + n_conv - (window_size % 2)) 
+    def _moving_average_filter(
+        self,
+        xx: np.ndarray,
+        window_size: int,
+    ) -> np.ndarray:
+        """重み付きノイズを移動平均で平滑化する。"""
+
+        # 必ず1次元のNumPy配列として扱う
+        xx = np.asarray(
+            xx,
+            dtype=float,
+        ).reshape(-1)
+
+        # 空の入力系列には移動平均を適用できない
+        if xx.size == 0:
+            raise ValueError(
+                "The input sequence of the moving average "
+                "filter is empty. "
+                f"K={self.K}, "
+                f"N={self.T}"
+            )
+
+        # CartPoleの基本窓幅は10とする
+        # ただし、入力系列より長い窓幅は使用しない
+        actual_window_size = min(
+            max(
+                int(window_size),
+                1,
+            ),
+            xx.size,
+        )
+
+        # 窓幅が1の場合は平滑化せずに返す
+        if actual_window_size == 1:
+            return xx.copy()
+
+        # 移動平均の係数を作成する
+        b = (
+            np.ones(
+                actual_window_size,
+                dtype=float,
+            )
+            / actual_window_size
+        )
+
+        # 畳み込みによって移動平均を計算する
+        xx_mean = np.convolve(
+            xx,
+            b,
+            mode="same",
+        )
+
+        # 配列端部の補正に使用する要素数
+        n_conv = math.ceil(
+            actual_window_size / 2
+        )
+
+        # 先頭要素を補正する
+        xx_mean[0] *= (
+            actual_window_size
+            / n_conv
+        )
+
+        # 配列の両端を補正する
+        for i in range(
+            1,
+            n_conv,
+        ):
+            xx_mean[i] *= (
+                actual_window_size
+                / (
+                    i
+                    + n_conv
+                )
+            )
+
+            xx_mean[-i] *= (
+                actual_window_size
+                / (
+                    i
+                    + n_conv
+                    - (
+                        actual_window_size
+                        % 2
+                    )
+                )
+            )
+
         return xx_mean
 
 
@@ -321,40 +469,88 @@ def run_simulation_mppi_cartpole() -> None:
     print("[INFO] Start simulation of cartpole with MPPI controller")
 
     # simulation settings
-    delta_t = 0.02 # [sec]
-    sim_steps = 200 # [steps]
-    print(f"[INFO] delta_t : {delta_t:.2f}[s] , sim_steps : {sim_steps}[steps], total_sim_time : {delta_t*sim_steps:.2f}[s]")
+    # 実環境へ制御入力を適用する周期
+    control_delta_t = 0.02
+
+    # MPPI内部モデルの予測周期
+    prediction_delta_t = 0.02
+
+    # CartPoleの試行時間は5.0秒
+    simulation_time = 5.0
+
+    simulation_steps = int(
+        simulation_time
+        / control_delta_t
+    )
+    print(
+    f"[INFO] control_delta_t: "
+    f"{control_delta_t:.2f} s"
+    )
+
+    print(
+        f"[INFO] prediction_delta_t: "
+        f"{prediction_delta_t:.2f} s"
+    )
+
+    print(
+        f"[INFO] simulation_steps: "
+        f"{simulation_steps}"
+    )
+
+    print(
+        f"[INFO] total_simulation_time: "
+        f"{simulation_time:.2f} s"
+    )
 
     # initialize a cartpole as a control target
     cartpole = CartPole(
-        mass_of_cart = 1.0,
-        mass_of_pole = 0.01,
-        length_of_pole = 2.0, 
+        mass_of_cart = 2.0,
+        mass_of_pole = 1.0,
+        length_of_pole = 1.0, 
         max_force_abs = 100.0,
+        delta_t=control_delta_t,
+        visualize=True,
     )
     cartpole.reset(
-        init_state = np.array([0.0, np.pi, 0.0, 0.0]), # [x[m], theta[rad], x_dot[m/s], theta_dot[rad/s]]
+        init_state = np.array([0.0, np.pi, 0.0, 0.0], dtype=float,) # [x[m], theta[rad], x_dot[m/s], theta_dot[rad/s]]
     )
 
     # initialize a mppi controller for the cartpole
     mppi = MPPIControllerForCartPole(
-        delta_t = delta_t,
-        mass_of_cart = 1.0,
-        mass_of_pole = 0.01,
-        length_of_pole = 2.0,
-        max_force_abs = 100.0,
-        horizon_step_T = 100,
-        number_of_samples_K = 1000,
-        param_exploration = 0.0,
-        param_lambda = 50.0,
-        param_alpha = 1.0,
-        sigma = 10.0,
-        stage_cost_weight    = np.array([5.0, 10.0, 0.1, 0.1]), # weight for [x, theta, x_dot, theta_dot]
-        terminal_cost_weight = np.array([5.0, 10.0, 0.1, 0.1]), # weight for [x, theta, x_dot, theta_dot]
+        prediction_delta_t=(prediction_delta_t),
+        mass_of_cart=2.0,
+        mass_of_pole=1.0,
+        length_of_pole=1.0,
+        max_force_abs=100.0,
+        horizon_step_T=100,
+        number_of_samples_K=1000,
+        param_exploration=0.0,
+        param_lambda=50.0,
+        param_alpha=1.0,
+        sigma=10.0,
+        stage_cost_weight=np.array(
+            [
+                5.0,
+                10.0,
+                0.1,
+                0.1,
+            ],
+            dtype=float,
+        ),
+        terminal_cost_weight=np.array(
+            [
+                5.0,
+                10.0,
+                0.1,
+                0.1,
+            ],
+            dtype=float,
+        ),
+        seed=0,
     )
 
     # simulation loop
-    for i in range(sim_steps):
+    for i in range(simulation_steps):
 
         # get current state of cartpole
         current_state = cartpole.get_state()
@@ -365,13 +561,20 @@ def run_simulation_mppi_cartpole() -> None:
         )
 
         # print current state and input force
-        print(f"Time: {i*delta_t:>2.2f}[s], x={current_state[0]:>+3.3f}[m], theta={current_state[1]:>+3.3f}[rad], input force={input_force:>+6.2f}[N]")
+        print(f"Time: {i*control_delta_t:>2.2f}[s], x={current_state[0]:>+3.3f}[m], theta={current_state[1]:>+3.3f}[rad], input force={input_force:>+6.2f}[N]")
 
         # update states of cartpole
-        cartpole.update(u=[input_force], delta_t=delta_t)
+        cartpole.update(
+            u=np.array(
+                [input_force],
+                dtype=float,
+            ),
+            delta_t=control_delta_t,
+        )
+    
 
     # save animation
-    cartpole.save_animation("mppi_cartpole.mp4", interval=int(delta_t * 1000), movie_writer="ffmpeg") # ffmpeg is required to write mp4 file
+    cartpole.save_animation("mppi_cartpole.mp4", interval=int(control_delta_t * 1000), movie_writer="ffmpeg") # ffmpeg is required to write mp4 file
 
 if __name__ == "__main__":
     run_simulation_mppi_cartpole()

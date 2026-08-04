@@ -34,7 +34,7 @@ FIGURE_DIRECTORY = (
 # ★★今回描画する予測周期★★
 # python -m scripts.analysis.plot_pendulum_heatmaps　実行コマンド
 
-TARGET_PREDICTION_DELTA_T = 0.20
+TARGET_PREDICTION_DELTA_T = 0.02
 
 # 実時間制約を表す計算時間
 REAL_TIME_LIMIT_MS = 20.0

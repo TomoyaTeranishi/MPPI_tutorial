@@ -159,22 +159,31 @@ def run_pendulum_trial(
             )
         )
 
-        # 現在状態と適用入力から総コストを計算する (3.37)
-        total_cost += calculate_evaluation_cost(
-            state=current_state,
-            torque=applied_torque,
-        )
-
-        # 実環境を制御周期Tsだけ進める (2.3)
+        # 実環境へ入力u_tを適用し、
+        # 制御周期Tsだけ状態を進める
         pendulum.update(
-            u=np.array([applied_torque]),
+            u=np.array(
+                [applied_torque],
+                dtype=float,
+            ),
             delta_t=control_delta_t,
             append_frame=False,
         )
 
-        # 入力適用後の状態を成功判定用に記録する
+        # 入力適用後の状態x_{t+1}を取得する
+        updated_state = pendulum.get_state()
+
+        # 卒論の式（3.37）に合わせ、
+        # 更新後状態と、その遷移に使用した入力から
+        # 1ステップ分の評価コストを計算する
+        total_cost += calculate_evaluation_cost(
+            state=updated_state,
+            torque=applied_torque,
+        )
+
+        # 更新後状態を成功判定用に記録する
         state_history.append(
-            pendulum.get_state()
+            updated_state
         )
 
     # リストをNumPy配列へ変換する
@@ -223,7 +232,7 @@ def run_pendulum_trial(
 if __name__ == "__main__":
 
     # 同じK、N、予測周期について5つのseedで試行する
-    seeds = [0, 1, 2, 3, 4]
+    seeds = [0, ]
     trial_results = []
 
     for seed in seeds:

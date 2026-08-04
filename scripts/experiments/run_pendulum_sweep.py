@@ -41,7 +41,7 @@ CONTROL_DELTA_T = 0.02
 
 #python -m scripts.experiments.run_pendulum_sweep 　実行コマンド
 # MPPI内部モデルの予測周期Δt
-PREDICTION_DELTA_T = 0.20
+PREDICTION_DELTA_T = 0.02
 
 # 1試行当たりの実行時間
 SIMULATION_TIME = 7.5

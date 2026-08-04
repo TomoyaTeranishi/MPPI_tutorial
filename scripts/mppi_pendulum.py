@@ -121,7 +121,7 @@ class MPPIControllerForPendulum():
         u = u + w_epsilon
 
         # clamp updated input sequence
-        # u = np.clip(u, -self.max_torque, self.max_torque)
+        u = np.clip(u, -self.max_torque, self.max_torque)
 
         # update previous control input sequence　入力系列を1ステップ左へシフト
         self.u_prev[:-1] = u[1:]
