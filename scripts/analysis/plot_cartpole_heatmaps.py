@@ -3,7 +3,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-
+from matplotlib.collections import LineCollection
 
 # ============================================================
 # 入力CSVと画像保存先
@@ -20,7 +20,7 @@ SUMMARY_RESULTS_PATH = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "cartpole"
+    / "cartpole_fixed"
     / "summary_results.csv"
 )
 
@@ -30,7 +30,7 @@ FIGURE_DIRECTORY = (
     REPOSITORY_ROOT
     / "media"
     / "experiment_figures"
-    / "cartpole"
+    / "cartpole_fixed"
 )
 
 
@@ -44,7 +44,7 @@ FIGURE_DIRECTORY = (
 # 20 msの場合は0.02
 # 40 msの場合は0.04
 # 200 msの場合は0.20
-TARGET_PREDICTION_DELTA_T = 0.12
+TARGET_PREDICTION_DELTA_T = 0.04
 
 
 # 実時間制約を表す平均計算時間
@@ -59,7 +59,7 @@ EXPECTED_NUMBER_OF_TRIALS = 5
 #
 # この範囲を超える高コスト条件は、
 # カラーバー上限の色で表示する
-COST_MINIMUM_VALUE = 7000.0
+COST_MINIMUM_VALUE = 6600.0
 COST_MAXIMUM_VALUE = 18000.0
 
 
@@ -238,201 +238,83 @@ def add_real_time_contour(
     axis,
     time_grid: np.ndarray,
 ) -> None:
-    """20 ms以下と20 ms超のセル境界をマス目に沿って描画する。"""
+    """20 ms以下と20 ms超のセル境界を黒縁付き白線で描画する。"""
 
-    time_grid = np.asarray(
-        time_grid,
-        dtype=float,
-    )
+    time_grid = np.asarray(time_grid, dtype=float)
+    finite_mask = np.isfinite(time_grid)
 
-    finite_mask = np.isfinite(
-        time_grid
-    )
+    if not np.any(finite_mask):
+        print("[INFO] Computation-time grid has no finite values.")
+        return
 
-    finite_values = time_grid[
-        finite_mask
-    ]
+    # 20 ms超を1、20 ms以下を0として二値化する
+    binary_mask = np.zeros(time_grid.shape, dtype=int)
+    binary_mask[finite_mask] = (
+        time_grid[finite_mask] > REAL_TIME_LIMIT_MS
+    ).astype(int)
 
-    if finite_values.size == 0:
+    boundary_segments = []
+    rows, columns = binary_mask.shape
+
+    # 上下に隣接するセルの値が異なる場所へ横線を追加する
+    difference_y = np.diff(binary_mask, axis=0)
+
+    for row in range(rows - 1):
+        for column in range(columns):
+            adjacent_cells_are_finite = (
+                finite_mask[row, column]
+                and finite_mask[row + 1, column]
+            )
+
+            if adjacent_cells_are_finite and difference_y[row, column] != 0:
+                boundary_segments.append([
+                    (column - 0.5, row + 0.5),
+                    (column + 0.5, row + 0.5),
+                ])
+
+    # 左右に隣接するセルの値が異なる場所へ縦線を追加する
+    difference_x = np.diff(binary_mask, axis=1)
+
+    for row in range(rows):
+        for column in range(columns - 1):
+            adjacent_cells_are_finite = (
+                finite_mask[row, column]
+                and finite_mask[row, column + 1]
+            )
+
+            if adjacent_cells_are_finite and difference_x[row, column] != 0:
+                boundary_segments.append([
+                    (column + 0.5, row - 0.5),
+                    (column + 0.5, row + 0.5),
+                ])
+
+    if not boundary_segments:
+        finite_values = time_grid[finite_mask]
         print(
-            "[INFO] Computation-time grid "
-            "has no finite values."
+            "[[finite_maskINFO] 20 ms boundarywn. "
+            f"Measured time range: {np.min(finite_values):.3f} to "
+            f"{np.max(finite_values):.3f} ms"
         )
         return
 
-    minimum_time = float(
-        np.min(finite_values)
+    # 下地として黒い太線を描画する
+    background_line = LineCollection(
+        boundary_segments,
+        colors="black",
+        linewidths=5.0,
+        zorder=9,
     )
+    axis.add_collection(background_line)
 
-    maximum_time = float(
-        np.max(finite_values)
+    # 黒線の上へ白い細線を重ねる
+    foreground_line = LineCollection(
+        boundary_segments,
+        colors="white",
+        linewidths=2.5,
+        zorder=10,
     )
+    axis.add_collection(foreground_line)
 
-    # 全条件が20 ms以下、または全条件が20 ms超の場合は、
-    # ヒートマップ内部に境界線が存在しない
-    if not (
-        minimum_time
-        <= REAL_TIME_LIMIT_MS
-        < maximum_time
-    ):
-        print(
-            "[INFO] 20 ms boundary was not drawn. "
-            "Measured time range: "
-            f"{minimum_time:.3f} to "
-            f"{maximum_time:.3f} ms"
-        )
-        return
-
-    # True：20 ms以内の実時間実行可能領域
-    # False：20 msを超える領域
-    feasible_grid = (
-        time_grid
-        <= REAL_TIME_LIMIT_MS
-    )
-
-    number_of_rows = (
-        time_grid.shape[0]
-    )
-
-    number_of_columns = (
-        time_grid.shape[1]
-    )
-
-    boundary_was_drawn = False
-
-    # --------------------------------------------------------
-    # 左右に隣接するセルの境界
-    # マス目に沿った縦線を描画する
-    # --------------------------------------------------------
-
-    for row_index in range(
-        number_of_rows
-    ):
-        for column_index in range(
-            1,
-            number_of_columns,
-        ):
-            left_is_finite = finite_mask[
-                row_index,
-                column_index - 1,
-            ]
-
-            right_is_finite = finite_mask[
-                row_index,
-                column_index,
-            ]
-
-            # NaNを含むセル間には線を描かない
-            if not (
-                left_is_finite
-                and right_is_finite
-            ):
-                continue
-
-            left_is_feasible = feasible_grid[
-                row_index,
-                column_index - 1,
-            ]
-
-            right_is_feasible = feasible_grid[
-                row_index,
-                column_index,
-            ]
-
-            # 20 ms以下と20 ms超が隣接する場合に、
-            # セル境界へ縦線を描画する
-            if (
-                left_is_feasible
-                != right_is_feasible
-            ):
-                x_position = (
-                    column_index
-                    - 0.5
-                )
-
-                axis.plot(
-                    [
-                        x_position,
-                        x_position,
-                    ],
-                    [
-                        row_index - 0.5,
-                        row_index + 0.5,
-                    ],
-                    color="white",
-                    linewidth=2.5,
-                    solid_capstyle="butt",
-                    zorder=5,
-                )
-
-                boundary_was_drawn = True
-
-    # --------------------------------------------------------
-    # 上下に隣接するセルの境界
-    # マス目に沿った横線を描画する
-    # --------------------------------------------------------
-
-    for row_index in range(
-        1,
-        number_of_rows,
-    ):
-        for column_index in range(
-            number_of_columns
-        ):
-            lower_is_finite = finite_mask[
-                row_index - 1,
-                column_index,
-            ]
-
-            upper_is_finite = finite_mask[
-                row_index,
-                column_index,
-            ]
-
-            # NaNを含むセル間には線を描かない
-            if not (
-                lower_is_finite
-                and upper_is_finite
-            ):
-                continue
-
-            lower_is_feasible = feasible_grid[
-                row_index - 1,
-                column_index,
-            ]
-
-            upper_is_feasible = feasible_grid[
-                row_index,
-                column_index,
-            ]
-
-            # 20 ms以下と20 ms超が隣接する場合に、
-            # セル境界へ横線を描画する
-            if (
-                lower_is_feasible
-                != upper_is_feasible
-            ):
-                y_position = (
-                    row_index
-                    - 0.5
-                )
-
-                axis.plot(
-                    [
-                        column_index - 0.5,
-                        column_index + 0.5,
-                    ],
-                    [
-                        y_position,
-                        y_position,
-                    ],
-                    color="white",
-                    linewidth=2.5,
-                    solid_capstyle="butt",
-                    zorder=5,
-                )
-
-                boundary_was_drawn = True
 
 def plot_heatmap(
     value_grid: np.ndarray,
@@ -449,7 +331,7 @@ def plot_heatmap(
     """1枚のCartPoleヒートマップを作成して保存する。"""
 
     figure, axis = plt.subplots(
-        figsize=(8, 7)
+        figsize=(5, 5)
     )
 
     # NaNセルを描画対象から除外する
@@ -461,6 +343,7 @@ def plot_heatmap(
         masked_grid,
         origin="lower",
         aspect="equal",
+        interpolation="nearest",
         cmap=color_map,
         vmin=minimum_value,
         vmax=maximum_value,
@@ -626,7 +509,7 @@ def main() -> None:
             FIGURE_DIRECTORY
             / f"total_cost_dt{dt_ms:03d}.png"
         ),
-        color_map="turbo",
+        color_map="jet",
         minimum_value=COST_MINIMUM_VALUE,
         maximum_value=COST_MAXIMUM_VALUE,
         time_grid=time_grid,
@@ -651,7 +534,7 @@ def main() -> None:
             FIGURE_DIRECTORY
             / f"success_rate_dt{dt_ms:03d}.png"
         ),
-        color_map="turbo_r",
+        color_map="jet_r",
         minimum_value=0.0,
         maximum_value=1.0,
         time_grid=time_grid,
@@ -661,29 +544,29 @@ def main() -> None:
     # 平均計算時間
     # --------------------------------------------------------
 
-    plot_heatmap(
-        value_grid=time_grid,
-        K_values=K_values,
-        N_values=N_values,
-        title=(
-            "CartPole Mean Computation Time\n"
-            f"Prediction dt = {dt_ms} ms"
-        ),
-        colorbar_label=(
-            "Mean computation time [ms]"
-        ),
-        output_path=(
-            FIGURE_DIRECTORY
-            / f"compute_time_dt{dt_ms:03d}.png"
-        ),
-        color_map="turbo",
-        minimum_value=0,
-        maximum_value=20,
+    # plot_heatmap(
+    #     value_grid=time_grid,
+    #     K_values=K_values,
+    #     N_values=N_values,
+    #     title=(
+    #         "CartPole Mean Computation Time\n"
+    #         f"Prediction dt = {dt_ms} ms"
+    #     ),
+    #     colorbar_label=(
+    #         "Mean computation time [ms]"
+    #     ),
+    #     output_path=(
+    #         FIGURE_DIRECTORY
+    #         / f"compute_time_dt{dt_ms:03d}.png"
+    #     ),
+    #     color_map="jet",
+    #     minimum_value=None,
+    #     maximum_value=None,
 
-        # 計算時間図にも20 ms境界を重ねる
-        # 白線が短すぎて不要な場合はNoneへ変更する
-        time_grid=time_grid,
-    )
+    #     # 計算時間図にも20 ms境界を重ねる
+    #     # 白線が短すぎて不要な場合はNoneへ変更する
+    #     time_grid=time_grid,
+    # )
 
     print()
     print(

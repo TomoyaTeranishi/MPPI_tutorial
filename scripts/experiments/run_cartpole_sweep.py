@@ -45,7 +45,7 @@ CONTROL_DELTA_T = 0.02
 
 #python -m scripts.experiments.run_cartpole_sweep 　実行コマンド
 # MPPI内部モデルの予測周期Δt
-PREDICTION_DELTA_T = 0.14
+PREDICTION_DELTA_T = 0.04
 
 # 1試行当たりの実行時間
 # CartPoleは5.0秒、250ステップ
@@ -67,7 +67,7 @@ RESULT_DIRECTORY = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "cartpole"
+    / "cartpole_fixed"
 )
 
 

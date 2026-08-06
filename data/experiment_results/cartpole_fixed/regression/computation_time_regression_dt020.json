@@ -1,0 +1,16 @@
+{
+    "environment": "cartpole",
+    "prediction_delta_t": 0.02,
+    "expected_number_of_trials": 5,
+    "number_of_conditions": 400,
+    "equation": "t_calc_ms = a * (K * N) + b * K + c * N + d",
+    "a": 6.26918769554796e-05,
+    "b": 1.215722414326867e-06,
+    "c": 0.031236623784759304,
+    "d": 0.08723238229417285,
+    "r_squared": 0.9978170157738326,
+    "mean_absolute_error_ms": 0.11733046634802578,
+    "root_mean_squared_error_ms": 0.16556711372892408,
+    "maximum_absolute_error_ms": 0.6878211325035526,
+    "residual_sum_of_squares": 10.964987659410593
+}

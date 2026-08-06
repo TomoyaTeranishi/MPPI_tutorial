@@ -82,19 +82,19 @@ def is_cartpole_success(
     # 以下の4条件を満たす必要がある
 
     position_condition = np.all(
-        np.abs(cart_position) <= 1.0
+        np.abs(cart_position) < 1.0
     )
 
     cart_velocity_condition = np.all(
-        np.abs(cart_velocity) <= 0.6
+        np.abs(cart_velocity) < 0.6
     )
 
     angle_condition = np.all(
-        np.abs(theta) <= 0.1
+        np.abs(theta) < 0.1
     )
 
     angular_velocity_condition = np.all(
-        np.abs(theta_dot) <= 0.2
+        np.abs(theta_dot) < 0.2
     )
 
     return bool(
@@ -123,9 +123,9 @@ def run_cartpole_trial(
 
     # 描画なしのCartPole実環境を作成する
     cartpole = CartPole(
-        mass_of_cart=2.0,
-        mass_of_pole=1.0,
-        length_of_pole=1.0,
+        mass_of_cart=1.0,
+        mass_of_pole=0.01,
+        length_of_pole=2.0,
         max_force_abs=100.0,
         delta_t=control_delta_t,
         visualize=False,
@@ -148,9 +148,9 @@ def run_cartpole_trial(
     # CartPole用MPPIコントローラを作成する
     controller = MPPIControllerForCartPole(
         prediction_delta_t=prediction_delta_t,
-        mass_of_cart=2.0,
-        mass_of_pole=1.0,
-        length_of_pole=1.0,
+        mass_of_cart=1.0,
+        mass_of_pole=0.01,
+        length_of_pole=2.0,
         max_force_abs=100.0,
         horizon_step_T=N,
         number_of_samples_K=K,
@@ -179,84 +179,54 @@ def run_cartpole_trial(
         seed=seed,
     )
 
-    # 1試行分の評価値と履歴
-    total_cost = 0.0
+    # 先輩コードと同じウォームアップ
+    current_state = cartpole.get_state()
+    _ = controller.calc_control_input(observed_x=current_state)
+
     state_history = []
     compute_times_ms = []
 
     for _ in range(simulation_steps):
-
-        # MPPI計算前の現在状態を取得する
         current_state = cartpole.get_state()
+        state_history.append(current_state.copy())
 
-        # calc_control_input()だけの処理時間を測定する
         start_time = time.perf_counter()
+        input_force, _ = controller.calc_control_input(
+            observed_x=current_state
+        )
+        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+        compute_times_ms.append(elapsed_ms)
 
-        input_force, _ = (
-            controller.calc_control_input(
-                observed_x=current_state,
+        applied_force = float(np.clip(input_force, -100.0, 100.0))
+
+        number_of_environment_updates = int(np.ceil(
+            prediction_delta_t / control_delta_t
+        ))
+
+        for _ in range(number_of_environment_updates):
+            cartpole.update(
+                u=np.array([applied_force], dtype=float),
+                delta_t=control_delta_t,
+                append_frame=False,
             )
-        )
 
-        elapsed_ms = (
-            time.perf_counter()
-            - start_time
-        ) * 1000.0
+    state_history = np.asarray(state_history, dtype=float)
+    compute_times_ms = np.asarray(compute_times_ms, dtype=float)
 
-        compute_times_ms.append(
-            elapsed_ms
-        )
-
-        # 実環境へ適用する力を入力制約内へ収める
-        applied_force = float(
-            np.clip(
-                input_force,
-                -100.0,
-                100.0,
-            )
-        )
-
-        # 実環境へ入力u_tを適用し、
-        # 制御周期Tsだけ状態を進める
-        cartpole.update(
-            u=np.array(
-                [applied_force],
-                dtype=float,
-            ),
-            delta_t=control_delta_t,
-            append_frame=False,
-        )
-
-        # 入力適用後の状態x_{t+1}を取得する
-        updated_state = cartpole.get_state()
-
-        # 卒論の式（3.38）に合わせ、
-        # 更新後状態について1ステップ分の評価コストを計算する
-        total_cost += calculate_evaluation_cost(
-            state=updated_state,
-        )
-
-        # 更新後状態を成功判定用に保存する
-        state_history.append(
-            updated_state
-        )
-
-    # リストをNumPy配列へ変換する
-    state_history = np.asarray(
-        state_history,
-        dtype=float,
+    # 最後以外はステージコスト、最後は終端コスト
+    stage_cost = sum(
+        calculate_evaluation_cost(state)
+        for state in state_history[:-1]
     )
+    terminal_cost = calculate_evaluation_cost(state_history[-1])
+    total_cost = stage_cost + terminal_cost
 
-    compute_times_ms = np.asarray(
-        compute_times_ms,
-        dtype=float,
-    )
-
-    # 最後の10ステップで成功判定を行う
     success = is_cartpole_success(
         state_history=state_history,
         window_size=10,
     )
+
+    final_state = cartpole.get_state()
 
     # 1試行分の結果を返す
     return {
@@ -275,18 +245,11 @@ def run_cartpole_trial(
         "max_compute_time_ms": float(
             np.max(compute_times_ms)
         ),
-        "final_cart_position": float(
-            state_history[-1, 0]
-        ),
-        "final_theta": float(
-            state_history[-1, 1]
-        ),
-        "final_cart_velocity": float(
-            state_history[-1, 2]
-        ),
-        "final_theta_dot": float(
-            state_history[-1, 3]
-        ),
+        "final_cart_position": float(final_state[0]),
+        "final_theta": float(final_state[1]),
+        "final_cart_velocity": float(final_state[2]),
+        "final_theta_dot": float(final_state[3]),
+
     }
 
 

@@ -135,9 +135,6 @@ class MPPIControllerForCartPole():
         # update control input sequence
         u = u + w_epsilon
 
-        # clamp updated input sequence
-        u = np.clip(u, -self.max_force_abs, self.max_force_abs)
-
         # update previous control input sequence
         self.u_prev[:-1] = u[1:]
         self.u_prev[-1] = u[-1]
@@ -192,38 +189,30 @@ class MPPIControllerForCartPole():
         dt = self.prediction_delta_t
 
         # get acc. values
+        total_mass = M + m
+        pole_mass_length = m * l
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
         temp = (
-            f - (m*l) * theta_dot**2 * np.sin(theta)
-        ) / (M + m)
-        new_theta_ddot = (g * np.sin(theta) + np.cos(theta) * temp) / (
-            l * (4.0 / 3.0 - m * np.cos(theta)**2 / (M + m))
-        )
-        new_x_ddot = temp + (m*l)  * new_theta_ddot * np.cos(theta) / (M+m)
+            f + pole_mass_length * theta_dot**2 * sin_theta
+        ) / total_mass
 
-        new_x = (
-            x
-            + x_dot * dt
+        new_theta_ddot = (
+            g * sin_theta - cos_theta * temp
+        ) / (
+            l * (4.0 / 3.0 - m * cos_theta**2 / total_mass)
         )
 
-        new_theta = (
-            theta
-            + theta_dot * dt
+        new_x_ddot = (
+            temp
+            - pole_mass_length * new_theta_ddot * cos_theta / total_mass
         )
 
-        new_theta = (
-            (new_theta + np.pi)
-            % (2.0 * np.pi)
-        ) - np.pi
-
-        new_x_dot = (
-            x_dot
-            + new_x_ddot * dt
-        )
-
-        new_theta_dot = (
-            theta_dot
-            + new_theta_ddot * dt
-        )
+        new_x = x + x_dot * dt
+        new_theta = theta + theta_dot * dt
+        new_x_dot = x_dot + new_x_ddot * dt
+        new_theta_dot = theta_dot + new_theta_ddot * dt
 
         x_t_plus_1 = np.array(
             [
@@ -267,27 +256,29 @@ class MPPIControllerForCartPole():
         dt = self.prediction_delta_t
 
         # get acc. values
+        total_mass = M + m
+        pole_mass_length = m * l
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
         temp = (
-            f - (m * l) * theta_dot**2 * np.sin(theta)
-        ) / (M + m)
+            f + pole_mass_length * theta_dot**2 * sin_theta
+        ) / total_mass
 
         new_theta_ddot = (
-            g * np.sin(theta) + np.cos(theta) * temp
+            g * sin_theta - cos_theta * temp
         ) / (
-            l * (4.0 / 3.0 - m * np.cos(theta)**2 / (M + m))
+            l * (4.0 / 3.0 - m * cos_theta**2 / total_mass)
         )
 
-        new_x_ddot = temp + (m * l) * new_theta_ddot * np.cos(theta) / (M + m)
+        new_x_ddot = (
+            temp
+            - pole_mass_length * new_theta_ddot * cos_theta / total_mass
+        )
 
         # 更新前の速度を使って位置と角度を更新する
         new_x = x + x_dot * dt
         new_theta = theta + theta_dot * dt
-
-        # 実環境と同じく角度を[-pi, pi)へ正規化する
-        new_theta = (
-            (new_theta + np.pi)
-            % (2.0 * np.pi)
-        ) - np.pi
 
         # 加速度を使って速度を更新する
         new_x_dot = (

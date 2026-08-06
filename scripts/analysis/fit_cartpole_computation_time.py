@@ -26,7 +26,7 @@ SUMMARY_RESULTS_PATH = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "cartpole"
+    / "cartpole_fixed"
     / "summary_results.csv"
 )
 
@@ -36,7 +36,7 @@ REGRESSION_DIRECTORY = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "cartpole"
+    / "cartpole_fixed"
     / "regression"
 )
 
@@ -46,7 +46,7 @@ FIGURE_DIRECTORY = (
     REPOSITORY_ROOT
     / "media"
     / "experiment_figures"
-    / "cartpole"
+    / "cartpole_fixed"
 )
 
 
@@ -538,178 +538,57 @@ def plot_estimated_time_heatmap(
     N_values: list,
     estimated_time_grid: np.ndarray,
 ) -> Path:
-    """回帰式による推定計算時間のヒートマップを作る。"""
+    """先輩Notebookと同じ形式で推定計算時間を可視化する。"""
 
-    FIGURE_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    FIGURE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    dt_ms = int(round(TARGET_PREDICTION_DELTA_T * 1000))
 
-    dt_ms = int(
-        round(
-            TARGET_PREDICTION_DELTA_T
-            * 1000
-        )
-    )
-
-    figure, axis = plt.subplots(
-        figsize=(8, 7)
-    )
-
-    # 推定時間の最大値を取得する
-    maximum_estimated_time = float(
-        np.max(
-            estimated_time_grid
-        )
-    )
-
-    # 20 msまたは推定最大値のうち、
-    # 大きい方をカラーバー上限とする
-    colorbar_maximum = max(
-        REAL_TIME_LIMIT_MS,
-        maximum_estimated_time,
-    )
+    figure, axis = plt.subplots(figsize=(5, 5))
 
     image = axis.imshow(
         estimated_time_grid,
+        cmap="jet",
         origin="lower",
         aspect="equal",
-        cmap="turbo",
-        vmin=0.0,
-        vmax=colorbar_maximum,
+        interpolation="nearest",
     )
 
-    # 横軸はN=10、20、...、100を表示する
-    x_tick_positions = [
-        index
-        for index, N in enumerate(N_values)
-        if N % 10 == 0
-    ]
+    # 先輩Notebookと同じく2条件ごとに目盛りを表示する
+    x_tick_positions = np.arange(len(N_values))[::2]
+    y_tick_positions = np.arange(len(K_values))[::2]
 
-    axis.set_xticks(
-        x_tick_positions
-    )
+    axis.set_xticks(x_tick_positions)
+    axis.set_xticklabels([N_values[index] for index in x_tick_positions])
+    axis.set_yticks(y_tick_positions)
+    axis.set_yticklabels([K_values[index] for index in y_tick_positions])
 
-    axis.set_xticklabels(
-        [
-            N_values[index]
-            for index in x_tick_positions
-        ]
-    )
-
-    # 縦軸は2条件ごとに表示する
-    y_tick_positions = np.arange(
-        1,
-        len(K_values),
-        2,
-    )
-
-    axis.set_yticks(
-        y_tick_positions
-    )
-
-    axis.set_yticklabels(
-        [
-            K_values[index]
-            for index in y_tick_positions
-        ]
-    )
-
-    axis.set_xlabel(
-        "Prediction steps (N)"
-    )
-
-    axis.set_ylabel(
-        "Number of samples (K)"
-    )
-
+    axis.set_xlabel("Prediction Steps (N)")
+    axis.set_ylabel("Number of Samples (K)")
     axis.set_title(
         "CartPole Estimated Computation Time\n"
         f"Prediction dt = {dt_ms} ms"
     )
 
-    colorbar = figure.colorbar(
-        image,
-        ax=axis,
-        shrink=0.80,
-        pad=0.04,
+    colorbar = figure.colorbar(image, ax=axis, shrink=0.8)
+    colorbar.set_label("Estimated Calc Time [ms]")
+
+    print(
+        f"Model Min. Calc Time: "
+        f"{np.min(estimated_time_grid):.3f} [ms]"
     )
-
-    colorbar.set_label(
-        "Estimated computation time [ms]"
+    print(
+        f"Model Max. Calc Time: "
+        f"{np.max(estimated_time_grid):.3f} [ms]"
     )
-
-    # 推定時間が20 msをまたぐ場合のみ白線を描く
-    minimum_time = float(
-        np.min(
-            estimated_time_grid
-        )
-    )
-
-    maximum_time = float(
-        np.max(
-            estimated_time_grid
-        )
-    )
-
-    if (
-        minimum_time
-        <= REAL_TIME_LIMIT_MS
-        <= maximum_time
-    ):
-        x_grid, y_grid = np.meshgrid(
-            np.arange(
-                estimated_time_grid.shape[1]
-            ),
-            np.arange(
-                estimated_time_grid.shape[0]
-            ),
-        )
-
-        contour = axis.contour(
-            x_grid,
-            y_grid,
-            estimated_time_grid,
-            levels=[
-                REAL_TIME_LIMIT_MS
-            ],
-            colors="white",
-            linewidths=2.0,
-        )
-
-        axis.clabel(
-            contour,
-            inline=True,
-            fontsize=9,
-            fmt={
-                REAL_TIME_LIMIT_MS: "20 ms"
-            },
-        )
-    else:
-        print(
-            "[INFO] Estimated times do not cross "
-            "the 20 ms limit. "
-            "Estimated range: "
-            f"{minimum_time:.3f} to "
-            f"{maximum_time:.3f} ms"
-        )
 
     figure.tight_layout()
 
     output_path = (
         FIGURE_DIRECTORY
-        / (
-            "estimated_compute_time_"
-            f"dt{dt_ms:03d}.png"
-        )
+        / f"estimated_compute_time_dt{dt_ms:03d}.png"
     )
 
-    figure.savefig(
-        output_path,
-        dpi=300,
-        bbox_inches="tight",
-    )
-
+    figure.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(figure)
 
     return output_path
