@@ -25,7 +25,7 @@ REGRESSION_DIRECTORY = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "pendulum"
+    / "pendulum_fixed"
     / "regression"
 )
 

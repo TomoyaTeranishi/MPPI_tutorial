@@ -3,6 +3,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import LineCollection
 
 
 # ============================================================
@@ -19,7 +20,7 @@ SUMMARY_RESULTS_PATH = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "pendulum"
+    / "pendulum_fixed"
     / "summary_results.csv"
 )
 
@@ -28,13 +29,13 @@ FIGURE_DIRECTORY = (
     REPOSITORY_ROOT
     / "media"
     / "experiment_figures"
-    / "pendulum"
+    / "pendulum_fixed"
 )
 
 # ★★今回描画する予測周期★★
 # python -m scripts.analysis.plot_pendulum_heatmaps　実行コマンド
 
-TARGET_PREDICTION_DELTA_T = 0.02
+TARGET_PREDICTION_DELTA_T = 0.20
 
 # 実時間制約を表す計算時間
 REAL_TIME_LIMIT_MS = 20.0
@@ -176,54 +177,122 @@ def add_real_time_contour(
     axis,
     time_grid: np.ndarray,
 ) -> None:
-    """20 msの実時間制約を表す白線を描画する。"""
+    """20 ms以下と20 ms超のセル境界を黒縁付き白線で描画する。"""
 
-    finite_values = time_grid[
-        np.isfinite(time_grid)
-    ]
+    time_grid = np.asarray(
+        time_grid,
+        dtype=float,
+    )
 
-    if finite_values.size == 0:
-        return
+    finite_mask = np.isfinite(time_grid)
 
-    minimum_time = np.min(finite_values)
-    maximum_time = np.max(finite_values)
-
-    # 20 msがデータ範囲外の場合、等高線は描けない
-    if not (
-        minimum_time
-        <= REAL_TIME_LIMIT_MS
-        <= maximum_time
-    ):
+    if not np.any(finite_mask):
         print(
-            "[INFO] 20 ms contour was not drawn because "
-            "all measured times are on the same side "
-            "of the 20 ms limit."
+            "[INFO] Computation-time grid "
+            "has no finite values."
         )
         return
 
-    # imshowのセル中心に合わせた格子座標
-    x_grid, y_grid = np.meshgrid(
-        np.arange(time_grid.shape[1]),
-        np.arange(time_grid.shape[0]),
+    # 20 ms超を1、20 ms以下を0として二値化する
+    binary_mask = np.zeros(
+        time_grid.shape,
+        dtype=int,
     )
 
-    contour = axis.contour(
-        x_grid,
-        y_grid,
-        time_grid,
-        levels=[REAL_TIME_LIMIT_MS],
+    binary_mask[finite_mask] = (
+        time_grid[finite_mask]
+        > REAL_TIME_LIMIT_MS
+    ).astype(int)
+
+    boundary_segments = []
+    rows, columns = binary_mask.shape
+
+    # 上下に隣接するセルの境界へ横線を追加する
+    difference_y = np.diff(
+        binary_mask,
+        axis=0,
+    )
+
+    for row in range(rows - 1):
+        for column in range(columns):
+            adjacent_cells_are_finite = (
+                finite_mask[row, column]
+                and finite_mask[row + 1, column]
+            )
+
+            if (
+                adjacent_cells_are_finite
+                and difference_y[row, column] != 0
+            ):
+                boundary_segments.append([
+                    (
+                        column - 0.5,
+                        row + 0.5,
+                    ),
+                    (
+                        column + 0.5,
+                        row + 0.5,
+                    ),
+                ])
+
+    # 左右に隣接するセルの境界へ縦線を追加する
+    difference_x = np.diff(
+        binary_mask,
+        axis=1,
+    )
+
+    for row in range(rows):
+        for column in range(columns - 1):
+            adjacent_cells_are_finite = (
+                finite_mask[row, column]
+                and finite_mask[row, column + 1]
+            )
+
+            if (
+                adjacent_cells_are_finite
+                and difference_x[row, column] != 0
+            ):
+                boundary_segments.append([
+                    (
+                        column + 0.5,
+                        row - 0.5,
+                    ),
+                    (
+                        column + 0.5,
+                        row + 0.5,
+                    ),
+                ])
+
+    if not boundary_segments:
+        finite_values = time_grid[finite_mask]
+
+        print(
+            "[INFO] 20 ms boundary was not drawn. "
+            "Measured time range: "
+            f"{np.min(finite_values):.3f} to "
+            f"{np.max(finite_values):.3f} ms"
+        )
+        return
+
+    # 下地として黒い太線を描画する
+    background_line = LineCollection(
+        boundary_segments,
+        colors="black",
+        linewidths=5.0,
+        zorder=9,
+    )
+
+    axis.add_collection(background_line)
+
+    # 黒線の上へ白い細線を重ねる
+    foreground_line = LineCollection(
+        boundary_segments,
         colors="white",
-        linewidths=2.0,
+        linewidths=2.5,
+        zorder=10,
     )
 
-    axis.clabel(
-        contour,
-        inline=True,
-        fontsize=9,
-        fmt={
-            REAL_TIME_LIMIT_MS: "20 ms"
-        },
-    )
+    axis.add_collection(foreground_line)
 
 
 def plot_heatmap(
@@ -233,7 +302,6 @@ def plot_heatmap(
     title: str,
     colorbar_label: str,
     output_path: Path,
-    value_format: str,
     color_map: str,
     minimum_value: float | None = None,
     maximum_value: float | None = None,
@@ -242,13 +310,14 @@ def plot_heatmap(
     """1枚のヒートマップを作成して保存する。"""
 
     figure, axis = plt.subplots(
-        figsize=(7, 7)
+        figsize=(5, 5)
     )
 
     image = axis.imshow(
         value_grid,
         origin="lower",
         aspect="equal",
+        interpolation="nearest",
         cmap=color_map,
         vmin=minimum_value,
         vmax=maximum_value,
@@ -381,8 +450,7 @@ def main() -> None:
             FIGURE_DIRECTORY
             / f"total_cost_dt{dt_ms:03d}.png"
         ),
-        value_format=".1f",
-        color_map="turbo",
+        color_map="jet",
         # 総コスト図だけ800～3000に固定する
         minimum_value=800.0,
         maximum_value=3000.0,
@@ -407,8 +475,7 @@ def main() -> None:
             FIGURE_DIRECTORY
             / f"success_rate_dt{dt_ms:03d}.png"
         ),
-        value_format=".2f",
-        color_map="turbo_r",
+        color_map="jet_r",
         minimum_value=0.0,
         maximum_value=1.0,
         time_grid=time_grid,
@@ -434,8 +501,7 @@ def main() -> None:
     #         FIGURE_DIRECTORY
     #         / f"compute_time_dt{dt_ms:03d}.png"
     #     ),
-    #     value_format=".3f",
-    #     color_map="turbo",
+    #     color_map="jet",
     #     time_grid=time_grid,
     # )
 

@@ -111,7 +111,7 @@ def run_pendulum_trial(
         number_of_samples_K=K,
         param_exploration=0.05, #探索noise
         param_lambda=0.5, #コストの差を重みにどれくらい強く反映するかを決める値
-        param_alpha=0.8, #探索用のサンプルの割合を決める
+        param_alpha=0.8, #MPPIの制御コストに関係する係数
         sigma=1.0,
         #（2.11）
         stage_cost_weight=np.array(
@@ -126,15 +126,21 @@ def run_pendulum_trial(
         seed=seed,
     )
 
+    # 初回実行時の配列確保などを計算時間から除外する
+    current_state = pendulum.get_state()
+    _ = controller.calc_control_input(
+        observed_x=current_state,
+    )
     # 評価値と履歴を保存する変数
-    total_cost = 0.0
     state_history = []
+    torque_history = []
     compute_times_ms = []
 
     for _ in range(simulation_steps):
 
         # 制御入力を計算する前の状態を取得する
         current_state = pendulum.get_state()
+        state_history.append(current_state.copy())
 
         # MPPIの制御入力計算だけを測定する
         start_time = time.perf_counter()
@@ -159,49 +165,55 @@ def run_pendulum_trial(
             )
         )
 
+        torque_history.append(applied_torque)
         # 実環境へ入力u_tを適用し、
         # 制御周期Tsだけ状態を進める
-        pendulum.update(
-            u=np.array(
-                [applied_torque],
-                dtype=float,
-            ),
-            delta_t=control_delta_t,
-            append_frame=False,
-        )
+        # 先輩コードと同じく、予測周期に対応する回数だけ
+        # 同じトルクを実環境へ適用する
+        number_of_environment_updates = int(np.ceil(
+            prediction_delta_t / control_delta_t
+        ))
 
-        # 入力適用後の状態x_{t+1}を取得する
-        updated_state = pendulum.get_state()
-
-        # 卒論の式（3.37）に合わせ、
-        # 更新後状態と、その遷移に使用した入力から
-        # 1ステップ分の評価コストを計算する
-        total_cost += calculate_evaluation_cost(
-            state=updated_state,
-            torque=applied_torque,
-        )
-
-        # 更新後状態を成功判定用に記録する
-        state_history.append(
-            updated_state
-        )
-
-    # リストをNumPy配列へ変換する
+        for _ in range(number_of_environment_updates):
+            pendulum.update(
+                u=np.array(
+                    [applied_torque],
+                    dtype=float,
+                ),
+                delta_t=control_delta_t,
+                append_frame=False,
+            )
     state_history = np.asarray(
         state_history,
         dtype=float,
     )
-
+    torque_history = np.asarray(
+        torque_history,
+        dtype=float,
+    )
     compute_times_ms = np.asarray(
         compute_times_ms,
         dtype=float,
     )
+    # 保存した状態とトルクから総コストを計算する
+    total_cost = sum(
+        calculate_evaluation_cost(
+            state=state,
+            torque=torque,
+        )
+        for state, torque in zip(
+            state_history,
+            torque_history,
+        )
+    )
 
-    # 最後の10ステップから成功・失敗を判定する
     success = is_pendulum_success(
         state_history=state_history,
         window_size=10,
     )
+
+    # 最後のトルク適用後の実際の終了状態を取得する
+    final_state = pendulum.get_state()
 
     # 1試行分の結果を辞書として返す
     return {
@@ -220,12 +232,8 @@ def run_pendulum_trial(
         "max_compute_time_ms": float(
             np.max(compute_times_ms)
         ),
-        "final_theta": float(
-            state_history[-1, 0]
-        ),
-        "final_theta_dot": float(
-            state_history[-1, 1]
-        ),
+        "final_theta": float(final_state[0]),
+        "final_theta_dot": float(final_state[1]),
     }
 
 # run_pendulum_trial.pyを単体で実行した場合のみ単体確認で動作する

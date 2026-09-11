@@ -38,8 +38,8 @@ class MPPIControllerForPendulum():
         self.param_gamma = self.param_lambda * (1.0 - (self.param_alpha))  # constant parameter of mppi
         self.Sigma = sigma # 探索ノイズの標準偏差
         self.rng = np.random.default_rng(seed=seed) # 同じseedを指定すると、同じノイズ列を再現できる
-        self.stage_cost_weight = stage_cost_weight
-        self.terminal_cost_weight = terminal_cost_weight
+        self.stage_cost_weight = np.asarray(stage_cost_weight, dtype=float,)
+        self.terminal_cost_weight = np.asarray(terminal_cost_weight, dtype=float,)
 
         # pendulum parameters
         self.g = 9.81
@@ -85,7 +85,7 @@ class MPPIControllerForPendulum():
             v[num_exploitation:, :] = epsilon[num_exploitation:, :]
 
         # K本分の状態をまとめて持つ: shape is (K, 2) Algorithm(l.3)
-        x = np.tile(x0, (self.K, 1)).astype(float)
+        x = np.tile(x0, (self.K, 1))
 
         # rollout all K samples at once
         for t in range(self.T):
@@ -115,13 +115,20 @@ class MPPIControllerForPendulum():
         w_epsilon = np.sum(w[:, None] * epsilon, axis=0)
 
         # apply moving average filter for smoothing input sequence　重み付きノイズを平滑化　Algorithm(l.11)
-        w_epsilon = self._moving_average_filter(xx=w_epsilon, window_size=5)
+        # 先輩コードと同じく基本窓幅を10とする
+        # Nが10未満の場合は予測ステップ数Nを窓幅にする
+        filter_window_size = min(
+            10,
+            self.T,
+        )
+
+        w_epsilon = self._moving_average_filter(
+            xx=w_epsilon,
+            window_size=filter_window_size,
+        )
 
         # update control input sequence Algorithm(l.11)
         u = u + w_epsilon
-
-        # clamp updated input sequence
-        u = np.clip(u, -self.max_torque, self.max_torque)
 
         # update previous control input sequence　入力系列を1ステップ左へシフト
         self.u_prev[:-1] = u[1:]
