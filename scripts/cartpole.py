@@ -82,18 +82,29 @@ class CartPole():
         force = np.clip(u, -self.max_force_abs, self.max_force_abs)[0]
 
         # get acc. values
+        total_mass = M + m
+        pole_mass_length = m * l
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
         temp = (
-            force - (m*l) * theta_dot**2 * np.sin(theta)
-        ) / (M + m)
-        new_theta_ddot = (g * np.sin(theta) + np.cos(theta) * temp) / (
-            l * (4.0 / 3.0 - m * np.cos(theta)**2 / (M + m))
+            force + pole_mass_length * theta_dot**2 * sin_theta
+        ) / total_mass
+
+        new_theta_ddot = (
+            g * sin_theta - cos_theta * temp
+        ) / (
+            l * (4.0 / 3.0 - m * cos_theta**2 / total_mass)
         )
-        new_x_ddot = temp + (m*l)  * new_theta_ddot * np.cos(theta) / (M+m)
+
+        new_x_ddot = (
+            temp
+            - pole_mass_length * new_theta_ddot * cos_theta / total_mass
+        )
 
         # update pos. values
         new_x = x + x_dot * dt
         new_theta = theta + theta_dot * dt
-        new_theta = ((new_theta + np.pi) % (2 * np.pi)) - np.pi # normalize theta to [-pi, pi]
 
         # update vel. values
         new_theta_dot = theta_dot + new_theta_ddot * dt
