@@ -1,0 +1,31 @@
+{
+  "actual_transitions": 7500,
+  "number_of_trajectories": 10,
+  "trajectory_lengths": {
+    "0": 750,
+    "1": 750,
+    "2": 750,
+    "3": 750,
+    "4": 750,
+    "5": 750,
+    "6": 750,
+    "7": 750,
+    "8": 750,
+    "9": 750
+  },
+  "theta_min": -3.1415911774057648,
+  "theta_max": 3.141592653589793,
+  "theta_dot_min": -3.048528711826849,
+  "theta_dot_max": 3.022651099183539,
+  "torque_command_min": -3.899421730054339,
+  "torque_command_max": 3.3229995166448827,
+  "torque_applied_min": -2.0,
+  "torque_applied_max": 2.0,
+  "clipped_count": 320,
+  "clipped_rate": 0.042666666666666665,
+  "invalid_error_count": 0,
+  "continuity_error_count": 0,
+  "range_error_count": 0,
+  "holding_error_count": 0,
+  "is_valid": true
+}

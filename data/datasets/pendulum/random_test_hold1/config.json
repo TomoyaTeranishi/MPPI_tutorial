@@ -1,0 +1,36 @@
+{
+  "dataset_name": "random_test_hold1",
+  "delta_t": 0.02,
+  "initial_theta": 3.141592653589793,
+  "initial_theta_dot": 0.0,
+  "number_of_trajectories": 2,
+  "trajectory_length": 100,
+  "noise_mean": 0.0,
+  "noise_std": 1.0,
+  "torque_hold_steps": 1,
+  "max_torque_abs": 2.0,
+  "max_speed_abs": 8.0,
+  "base_seed": 0,
+  "total_transitions": 200,
+  "trajectory_seeds": [
+    0,
+    1
+  ],
+  "transition_columns": [
+    "trajectory_id",
+    "step",
+    "theta",
+    "theta_dot",
+    "torque_command",
+    "torque_applied",
+    "next_theta",
+    "next_theta_dot",
+    "delta_t",
+    "seed",
+    "noise_std",
+    "torque_hold_steps",
+    "initial_theta",
+    "initial_theta_dot"
+  ],
+  "git_commit": "ba7699801e6fa9f1f8b12c6ad7f633bca727b9c9"
+}

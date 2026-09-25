@@ -1,0 +1,36 @@
+{
+  "hold1": {
+    "number_of_transitions": 200,
+    "theta_min": -3.1414503149528126,
+    "theta_max": 3.141592653589793,
+    "theta_range": 6.283042968542606,
+    "theta_dot_min": -0.6552411899310545,
+    "theta_dot_max": 0.7786977514779099,
+    "theta_dot_range": 1.4339389414089645,
+    "torque_applied_mean": 0.010380058424591016,
+    "torque_applied_std": 0.8913940721555857,
+    "torque_applied_min": -2.0,
+    "torque_applied_max": 2.0,
+    "clipped_count": 7,
+    "clipped_rate": 0.035,
+    "state_range_area": 9.009499983139023
+  },
+  "hold5": {
+    "number_of_transitions": 200,
+    "theta_min": -3.1414417773244807,
+    "theta_max": 3.141592653589793,
+    "theta_range": 6.283034430914274,
+    "theta_dot_min": -1.269587764625765,
+    "theta_dot_max": 1.7681946858738757,
+    "theta_dot_range": 3.0377824504996407,
+    "torque_applied_mean": -0.06471976116617258,
+    "torque_applied_std": 0.7118306843767448,
+    "torque_applied_min": -2.0,
+    "torque_applied_max": 1.3040000451301372,
+    "clipped_count": 5,
+    "clipped_rate": 0.025,
+    "state_range_area": 19.08649173011638
+  },
+  "hold5_to_hold1_theta_dot_range_ratio": 2.118488007247203,
+  "hold5_to_hold1_state_range_area_ratio": 2.118485128568301
+}

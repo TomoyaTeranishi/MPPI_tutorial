@@ -1,0 +1,71 @@
+{
+  "dataset_name": "random_hold1_v001",
+  "created_at": "2026-09-25T14:27:42.442569+09:00",
+  "source_file": "C:\\Users\\Tomoya Teranishi\\三好研\\研究関連\\python_simple_mppi\\data\\datasets\\pendulum\\random_hold1_v001\\splits\\train.csv",
+  "number_of_training_samples": 5250,
+  "calculation_scope": "training_data_only",
+  "standardization_formula": "(value - mean) / std",
+  "inverse_formula": "standardized_value * std + mean",
+  "input_names": [
+    "sin_theta",
+    "cos_theta",
+    "theta_dot",
+    "torque_applied"
+  ],
+  "input_mean": [
+    0.002528395611176368,
+    -0.9811139563903801,
+    -0.015535192735754572,
+    -0.018569010086017003
+  ],
+  "input_std": [
+    0.18956178655450343,
+    0.03841016623125475,
+    0.7421814660103725,
+    0.9518738739139303
+  ],
+  "output_names": [
+    "sin_next_theta",
+    "cos_next_theta",
+    "next_theta_dot"
+  ],
+  "output_mean": [
+    0.002828542646476215,
+    -0.981037637637104,
+    -0.01590522651254638
+  ],
+  "output_std": [
+    0.1899085645645236,
+    0.038624991792212245,
+    0.742996234482957
+  ],
+  "input_zero_std_names": [],
+  "output_zero_std_names": [],
+  "input_standardization_check": {
+    "standardized_mean": [
+      -9.30472630162036e-19,
+      -1.143212508785447e-14,
+      -3.6415315207705136e-17,
+      -2.283887364943179e-18
+    ],
+    "standardized_std": [
+      1.0000000000000027,
+      1.0000000000000013,
+      0.9999999999999998,
+      0.9999999999999989
+    ]
+  },
+  "output_standardization_check": {
+    "standardized_mean": [
+      -6.048072096053234e-18,
+      -1.2764064937273578e-14,
+      -4.5550864667477854e-17
+    ],
+    "standardized_std": [
+      0.9999999999999997,
+      0.9999999999999999,
+      1.0000000000000007
+    ]
+  },
+  "git_commit": "ba7699801e6fa9f1f8b12c6ad7f633bca727b9c9"
+}
