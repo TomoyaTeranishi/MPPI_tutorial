@@ -4,6 +4,33 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib import font_manager
+
+# 利用可能な日本語フォントを自動選択
+available_fonts = {
+    font.name
+    for font in font_manager.fontManager.ttflist
+}
+
+japanese_font_candidates = [
+    "Yu Gothic",
+    "Meiryo",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "IPAexGothic",
+]
+
+for font_name in japanese_font_candidates:
+    if font_name in available_fonts:
+        plt.rcParams["font.family"] = font_name
+        print(f"[INFO] Japanese font: {font_name}")
+        break
+else:
+    print("[WARNING] Japanese font was not found.")
+
+# 数式などでマイナス記号が文字化けするのを防ぐ
+plt.rcParams["axes.unicode_minus"] = False
 
 # ============================================================
 # 入力CSVと画像保存先
@@ -44,7 +71,7 @@ FIGURE_DIRECTORY = (
 # 20 msの場合は0.02
 # 40 msの場合は0.04
 # 200 msの場合は0.20
-TARGET_PREDICTION_DELTA_T = 0.04
+TARGET_PREDICTION_DELTA_T = 0.02
 
 
 # 実時間制約を表す平均計算時間
@@ -291,7 +318,7 @@ def add_real_time_contour(
     if not boundary_segments:
         finite_values = time_grid[finite_mask]
         print(
-            "[[finite_maskINFO] 20 ms boundarywn. "
+            "[INFO] 20 ms boundary not found. "
             f"Measured time range: {np.min(finite_values):.3f} to "
             f"{np.max(finite_values):.3f} ms"
         )
@@ -371,7 +398,9 @@ def plot_heatmap(
     )
 
     axis.set_xlabel(
-        "Prediction steps (N)"
+        "予測ステップ数：N",
+        fontsize=16,
+        fontweight="bold",
     )
 
     # 縦軸：サンプル数K
@@ -396,21 +425,53 @@ def plot_heatmap(
     )
 
     axis.set_ylabel(
-        "Number of samples (K)"
+        "状態軌道数：K",
+        fontsize=16,
+        fontweight="bold"
     )
+
+    axis.tick_params(
+        axis="both",
+        which="major",
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    for tick_label in axis.get_xticklabels():
+        tick_label.set_fontweight("normal")
+
+    for tick_label in axis.get_yticklabels():
+        tick_label.set_fontweight("normal")
 
     axis.set_title(title)
 
-    colorbar = figure.colorbar(
-        image,
-        ax=axis,
-        shrink=0.80,
-        pad=0.04,
+    # ヒートマップと同じ高さのカラーバー用領域を右側に作る
+    divider = make_axes_locatable(axis)
+    colorbar_axis = divider.append_axes(
+        "right",
+        size="5%",
+        pad=0.20,
     )
 
-    colorbar.set_label(
-        colorbar_label
+    colorbar = figure.colorbar(
+        image,
+        cax=colorbar_axis,
     )
+    colorbar.set_label(
+        colorbar_label,
+        fontweight="bold",
+        fontsize=16,
+    )
+
+    colorbar.ax.tick_params(
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    for tick_label in colorbar.ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
 
     # 計算時間格子が渡された場合は、
     # 20 msの実時間境界を重ねる
@@ -420,12 +481,24 @@ def plot_heatmap(
             time_grid=time_grid,
         )
 
+    # 横軸・縦軸の目盛り数字を太字にする
+    for label in axis.get_xticklabels():
+        label.set_fontweight("bold")
+
+    for label in axis.get_yticklabels():
+        label.set_fontweight("bold")
+
+    # カラーバーの目盛り数字を太字にする
+    for label in colorbar.ax.get_yticklabels():
+        label.set_fontweight("bold")    
+
     figure.tight_layout()
 
     figure.savefig(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        pad_inches=0.05,
     )
 
     print(
@@ -499,11 +572,10 @@ def main() -> None:
         K_values=K_values,
         N_values=N_values,
         title=(
-            "CartPole Mean Total Cost\n"
-            f"Prediction dt = {dt_ms} ms"
+            ""
         ),
         colorbar_label=(
-            "Mean total cost"
+            "総コスト"
         ),
         output_path=(
             FIGURE_DIRECTORY
@@ -524,11 +596,10 @@ def main() -> None:
         K_values=K_values,
         N_values=N_values,
         title=(
-            "CartPole Task Success Rate\n"
-            f"Prediction dt = {dt_ms} ms"
+            ""
         ),
         colorbar_label=(
-            "Success rate"
+            "タスク成功率"
         ),
         output_path=(
             FIGURE_DIRECTORY
@@ -549,11 +620,10 @@ def main() -> None:
     #     K_values=K_values,
     #     N_values=N_values,
     #     title=(
-    #         "CartPole Mean Computation Time\n"
-    #         f"Prediction dt = {dt_ms} ms"
+    #         ""
     #     ),
     #     colorbar_label=(
-    #         "Mean computation time [ms]"
+    #         "平均計算時間 [ms]"
     #     ),
     #     output_path=(
     #         FIGURE_DIRECTORY

@@ -5,6 +5,36 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import font_manager
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+# ============================================================
+# 日本語フォントの設定
+# ============================================================
+
+available_fonts = {
+    font.name
+    for font in font_manager.fontManager.ttflist
+}
+
+japanese_font_candidates = [
+    "Yu Gothic",
+    "Meiryo",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "IPAexGothic",
+]
+
+for font_name in japanese_font_candidates:
+    if font_name in available_fonts:
+        plt.rcParams["font.family"] = font_name
+        print(f"[INFO] Japanese font: {font_name}")
+        break
+else:
+    print("[WARNING] Japanese font was not found.")
+
+# マイナス記号の文字化けを防ぐ
+plt.rcParams["axes.unicode_minus"] = False
 
 
 # このファイルは scripts/analysis にあるため、
@@ -16,7 +46,7 @@ SUMMARY_RESULTS_PATH = (
     REPOSITORY_ROOT
     / "data"
     / "experiment_results"
-    / "pendulum"
+    / "pendulum_fixed"
     / "summary_results.csv"
 )
 
@@ -34,7 +64,7 @@ FIGURE_DIRECTORY = (
     REPOSITORY_ROOT
     / "media"
     / "experiment_figures"
-    / "pendulum"
+    / "pendulum_fixed"
 )
 
 
@@ -433,73 +463,122 @@ def plot_estimated_time_heatmap(
     )
 
     figure, axis = plt.subplots(
-        figsize=(8, 7)
+        figsize=(5, 5)
     )
 
     image = axis.imshow(
         estimated_time_grid,
         origin="lower",
-        aspect="auto",
-        cmap="turbo",
+        aspect="equal",
+        interpolation="nearest",
+        cmap="jet",
     )
 
-    # 横軸は10、20、...、100を表示する
+    # 横軸：予測ステップ数N
+    # N=10、20、...、100を表示する
     x_tick_positions = [
         index
         for index, N in enumerate(N_values)
         if N % 10 == 0
     ]
 
-    axis.set_xticks(x_tick_positions)
-    axis.set_xticklabels(
-        [
-            N_values[index]
-            for index in x_tick_positions
-        ]
+    x_tick_labels = [
+        N_values[index]
+        for index in x_tick_positions
+    ]
+
+    axis.set_xticks(
+        x_tick_positions
     )
 
-    # 縦軸は卒論図に近い間隔で表示する
+    axis.set_xticklabels(
+        x_tick_labels
+    )
+
+    axis.set_xlabel(
+        "予測ステップ数：N",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # 縦軸：状態軌道数K
+    # 20条件のうち2条件ごとに表示する
     y_tick_positions = np.arange(
         1,
         len(K_values),
         2,
     )
 
-    axis.set_yticks(y_tick_positions)
+    y_tick_labels = [
+        K_values[index]
+        for index in y_tick_positions
+    ]
+
+    axis.set_yticks(
+        y_tick_positions
+    )
+
     axis.set_yticklabels(
-        [
-            K_values[index]
-            for index in y_tick_positions
-        ]
+        y_tick_labels
     )
 
-    axis.set_xlabel(
-        "Prediction steps N"
-    )
     axis.set_ylabel(
-        "Number of samples K"
+        "状態軌道数：K",
+        fontsize=16,
+        fontweight="bold",
     )
 
-    axis.set_title(
-        "Pendulum Estimated Computation Time\n"
-        f"Prediction dt = {dt_ms} ms"
+    # 軸の目盛り線と数字
+    axis.tick_params(
+        axis="both",
+        which="major",
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    for tick_label in axis.get_xticklabels():
+        tick_label.set_fontweight("bold")
+
+    for tick_label in axis.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    # ヒートマップと同じ高さのカラーバーを作る
+    divider = make_axes_locatable(axis)
+
+    colorbar_axis = divider.append_axes(
+        "right",
+        size="5%",
+        pad=0.20,
     )
 
     colorbar = figure.colorbar(
         image,
-        ax=axis,
+        cax=colorbar_axis,
     )
 
     colorbar.set_label(
-        "Estimated computation time [ms]"
+        "推定計算時間 [ms]",
+        fontsize=16,
+        fontweight="bold",
     )
 
-    # 推定時間に20 msをまたぐ領域がある場合だけ白線を引く
-    minimum_time = np.min(
-        estimated_time_grid
+    colorbar.ax.tick_params(
+        labelsize=11,
+        width=1.0,
+        length=6,
     )
-    maximum_time = np.max(
-        estimated_time_grid
+
+    for tick_label in colorbar.ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    # 推定時間が20 msをまたぐ場合だけ境界線を描く
+    minimum_time = float(
+        np.min(estimated_time_grid)
+    )
+
+    maximum_time = float(
+        np.max(estimated_time_grid)
     )
 
     if minimum_time <= 20.0 <= maximum_time:
@@ -512,25 +591,33 @@ def plot_estimated_time_heatmap(
             ),
         )
 
-        contour = axis.contour(
+        # 黒い太線を下に描く
+        axis.contour(
+            x_grid,
+            y_grid,
+            estimated_time_grid,
+            levels=[20.0],
+            colors="black",
+            linewidths=5.0,
+            zorder=9,
+        )
+
+        # 白い細線を重ねる
+        axis.contour(
             x_grid,
             y_grid,
             estimated_time_grid,
             levels=[20.0],
             colors="white",
-            linewidths=2.0,
-        )
-
-        axis.clabel(
-            contour,
-            inline=True,
-            fontsize=9,
-            fmt={20.0: "20 ms"},
+            linewidths=2.5,
+            zorder=10,
         )
     else:
         print(
-            "[INFO] Estimated times do not cross "
-            "the 20 ms limit."
+            "[INFO] 20 ms boundary was not drawn. "
+            f"Estimated time range: "
+            f"{minimum_time:.3f} to "
+            f"{maximum_time:.3f} ms"
         )
 
     figure.tight_layout()
@@ -544,6 +631,7 @@ def plot_estimated_time_heatmap(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        pad_inches=0.05,
     )
 
     plt.close(figure)

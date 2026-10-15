@@ -1,0 +1,12 @@
+{
+    "environment": "pendulum",
+    "prediction_delta_t": 0.02,
+    "equation": "t_calc_ms = a * (K * N) + b * K + c * N + d",
+    "a": 5.593117117552613e-05,
+    "b": -7.410748555239182e-05,
+    "c": 0.02166973742472693,
+    "d": 0.059923588806854985,
+    "r_squared": 0.9989002333387109,
+    "mean_absolute_error_ms": 0.07909308612811311,
+    "root_mean_squared_error_ms": 0.09943386010335101
+}

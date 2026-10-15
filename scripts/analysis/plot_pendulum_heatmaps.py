@@ -3,7 +3,38 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import font_manager
 from matplotlib.collections import LineCollection
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+
+# ============================================================
+# 日本語フォントの設定
+# ============================================================
+
+available_fonts = {
+    font.name
+    for font in font_manager.fontManager.ttflist
+}
+
+japanese_font_candidates = [
+    "Yu Gothic",
+    "Meiryo",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "IPAexGothic",
+]
+
+for font_name in japanese_font_candidates:
+    if font_name in available_fonts:
+        plt.rcParams["font.family"] = font_name
+        print(f"[INFO] Japanese font: {font_name}")
+        break
+else:
+    print("[WARNING] Japanese font was not found.")
+
+# マイナス記号の文字化けを防ぐ
+plt.rcParams["axes.unicode_minus"] = False
 
 
 # ============================================================
@@ -299,7 +330,6 @@ def plot_heatmap(
     value_grid: np.ndarray,
     K_values: list,
     N_values: list,
-    title: str,
     colorbar_label: str,
     output_path: Path,
     color_map: str,
@@ -307,14 +337,19 @@ def plot_heatmap(
     maximum_value: float | None = None,
     time_grid: np.ndarray | None = None,
 ) -> None:
-    """1枚のヒートマップを作成して保存する。"""
+    """1枚のPendulumヒートマップを作成して保存する。"""
 
     figure, axis = plt.subplots(
         figsize=(5, 5)
     )
 
+    # NaNセルを描画対象から除外する
+    masked_grid = np.ma.masked_invalid(
+        value_grid
+    )
+
     image = axis.imshow(
-        value_grid,
+        masked_grid,
         origin="lower",
         aspect="equal",
         interpolation="nearest",
@@ -335,12 +370,21 @@ def plot_heatmap(
         for index in x_tick_positions
     ]
 
-    axis.set_xticks(x_tick_positions)
-    axis.set_xticklabels(x_tick_labels)
-    axis.set_xlabel("Prediction steps (N)")
+    axis.set_xticks(
+        x_tick_positions
+    )
 
+    axis.set_xticklabels(
+        x_tick_labels
+    )
 
-    # 縦軸：サンプル数K
+    axis.set_xlabel(
+        "予測ステップ数：N",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # 縦軸：状態軌道数K
     y_tick_positions = np.arange(
         1,
         len(K_values),
@@ -352,21 +396,67 @@ def plot_heatmap(
         for index in y_tick_positions
     ]
 
-    axis.set_yticks(y_tick_positions)
-    axis.set_yticklabels(y_tick_labels)
-    axis.set_ylabel("Number of samples (K)")
+    axis.set_yticks(
+        y_tick_positions
+    )
 
-    axis.set_title(title)
+    axis.set_yticklabels(
+        y_tick_labels
+    )
+
+    axis.set_ylabel(
+        "状態軌道数：K",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # 軸の目盛り線と目盛り数字
+    axis.tick_params(
+        axis="both",
+        which="major",
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    # 目盛り数字を太字にする
+    for tick_label in axis.get_xticklabels():
+        tick_label.set_fontweight("bold")
+
+    for tick_label in axis.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    # ヒートマップと同じ高さのカラーバーを作る
+    divider = make_axes_locatable(axis)
+
+    colorbar_axis = divider.append_axes(
+        "right",
+        size="5%",
+        pad=0.20,
+    )
 
     colorbar = figure.colorbar(
         image,
-        ax=axis,
-        shrink = 0.75,
-        pad = 0.04,
+        cax=colorbar_axis,
     )
-    colorbar.set_label(colorbar_label)
 
-    # 計算時間の格子が渡された場合は20 ms線を描画する
+    colorbar.set_label(
+        colorbar_label,
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    colorbar.ax.tick_params(
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    # カラーバーの目盛り数字を太字にする
+    for tick_label in colorbar.ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    # 平均計算時間が20 msとなる境界を描画する
     if time_grid is not None:
         add_real_time_contour(
             axis=axis,
@@ -379,6 +469,7 @@ def plot_heatmap(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        pad_inches=0.05,
     )
 
     print(
@@ -435,23 +526,17 @@ def main() -> None:
     # --------------------------------------------------------
     # 平均総コスト
     # --------------------------------------------------------
+
     plot_heatmap(
         value_grid=cost_grid,
         K_values=K_values,
         N_values=N_values,
-        title=(
-            "Pendulum Mean Total Cost\n"
-            f"Prediction dt = {dt_ms} ms"
-        ),
-        colorbar_label=(
-            "total cost "
-        ),
+        colorbar_label="総コスト",
         output_path=(
             FIGURE_DIRECTORY
             / f"total_cost_dt{dt_ms:03d}.png"
         ),
         color_map="jet",
-        # 総コスト図だけ800～3000に固定する
         minimum_value=800.0,
         maximum_value=3000.0,
         time_grid=time_grid,
@@ -460,17 +545,12 @@ def main() -> None:
     # --------------------------------------------------------
     # タスク成功率
     # --------------------------------------------------------
+
     plot_heatmap(
         value_grid=success_grid,
         K_values=K_values,
         N_values=N_values,
-        title=(
-            "Pendulum Task Success Rate\n"
-            f"Prediction dt = {dt_ms} ms"
-        ),
-        colorbar_label=(
-            "Success rate "
-        ),
+        colorbar_label="タスク成功率",
         output_path=(
             FIGURE_DIRECTORY
             / f"success_rate_dt{dt_ms:03d}.png"
@@ -490,12 +570,8 @@ def main() -> None:
     #     value_grid=time_grid,
     #     K_values=K_values,
     #     N_values=N_values,
-    #     title=(
-    #         "Pendulum Mean Computation Time\n"
-    #         f"Prediction dt = {dt_ms} ms"
-    #     ),
     #     colorbar_label=(
-    #         "Mean computation time [ms]"
+    #         "平均計算時間 [ms]"
     #     ),
     #     output_path=(
     #         FIGURE_DIRECTORY

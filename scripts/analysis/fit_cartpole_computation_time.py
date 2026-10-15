@@ -10,6 +10,36 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import font_manager
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+
+# ============================================================
+# 日本語フォントの設定
+# ============================================================
+
+available_fonts = {
+    font.name
+    for font in font_manager.fontManager.ttflist
+}
+
+japanese_font_candidates = [
+    "Yu Gothic",
+    "Meiryo",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "IPAexGothic",
+]
+
+for font_name in japanese_font_candidates:
+    if font_name in available_fonts:
+        plt.rcParams["font.family"] = font_name
+        print(f"[INFO] Japanese font: {font_name}")
+        break
+else:
+    print("[WARNING] Japanese font was not found.")
+
+plt.rcParams["axes.unicode_minus"] = False
 
 
 # ============================================================
@@ -538,12 +568,23 @@ def plot_estimated_time_heatmap(
     N_values: list,
     estimated_time_grid: np.ndarray,
 ) -> Path:
-    """先輩Notebookと同じ形式で推定計算時間を可視化する。"""
+    """回帰式による推定計算時間をヒートマップで可視化する。"""
 
-    FIGURE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    dt_ms = int(round(TARGET_PREDICTION_DELTA_T * 1000))
+    FIGURE_DIRECTORY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    figure, axis = plt.subplots(figsize=(5, 5))
+    dt_ms = int(
+        round(
+            TARGET_PREDICTION_DELTA_T
+            * 1000
+        )
+    )
+
+    figure, axis = plt.subplots(
+        figsize=(5, 5)
+    )
 
     image = axis.imshow(
         estimated_time_grid,
@@ -553,31 +594,112 @@ def plot_estimated_time_heatmap(
         interpolation="nearest",
     )
 
-    # 先輩Notebookと同じく2条件ごとに目盛りを表示する
-    x_tick_positions = np.arange(len(N_values))[::2]
-    y_tick_positions = np.arange(len(K_values))[::2]
+    # 横軸：予測ステップ数N
+    # N=10、20、...、100を表示する
+    x_tick_positions = [
+        index
+        for index, N in enumerate(N_values)
+        if N % 10 == 0
+    ]
 
-    axis.set_xticks(x_tick_positions)
-    axis.set_xticklabels([N_values[index] for index in x_tick_positions])
-    axis.set_yticks(y_tick_positions)
-    axis.set_yticklabels([K_values[index] for index in y_tick_positions])
+    x_tick_labels = [
+        N_values[index]
+        for index in x_tick_positions
+    ]
 
-    axis.set_xlabel("Prediction Steps (N)")
-    axis.set_ylabel("Number of Samples (K)")
-    axis.set_title(
-        "CartPole Estimated Computation Time\n"
-        f"Prediction dt = {dt_ms} ms"
+    axis.set_xticks(
+        x_tick_positions
     )
 
-    colorbar = figure.colorbar(image, ax=axis, shrink=0.8)
-    colorbar.set_label("Estimated Calc Time [ms]")
+    axis.set_xticklabels(
+        x_tick_labels
+    )
+
+    axis.set_xlabel(
+        "予測ステップ数：N",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # 縦軸：状態軌道数K
+    # 20条件のうち2条件ごとに表示する
+    y_tick_positions = np.arange(
+        1,
+        len(K_values),
+        2,
+    )
+
+    y_tick_labels = [
+        K_values[index]
+        for index in y_tick_positions
+    ]
+
+    axis.set_yticks(
+        y_tick_positions
+    )
+
+    axis.set_yticklabels(
+        y_tick_labels
+    )
+
+    axis.set_ylabel(
+        "状態軌道数：K",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    # 軸の目盛り線と目盛り数字
+    axis.tick_params(
+        axis="both",
+        which="major",
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    # 目盛り数字を太字にする
+    for tick_label in axis.get_xticklabels():
+        tick_label.set_fontweight("bold")
+
+    for tick_label in axis.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    # ヒートマップと同じ高さのカラーバーを作る
+    divider = make_axes_locatable(axis)
+
+    colorbar_axis = divider.append_axes(
+        "right",
+        size="5%",
+        pad=0.20,
+    )
+
+    colorbar = figure.colorbar(
+        image,
+        cax=colorbar_axis,
+    )
+
+    colorbar.set_label(
+        "推定計算時間 [ms]",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    colorbar.ax.tick_params(
+        labelsize=11,
+        width=1.0,
+        length=6,
+    )
+
+    for tick_label in colorbar.ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
 
     print(
-        f"Model Min. Calc Time: "
+        "Model Min. Calc Time: "
         f"{np.min(estimated_time_grid):.3f} [ms]"
     )
+
     print(
-        f"Model Max. Calc Time: "
+        "Model Max. Calc Time: "
         f"{np.max(estimated_time_grid):.3f} [ms]"
     )
 
@@ -588,7 +710,13 @@ def plot_estimated_time_heatmap(
         / f"estimated_compute_time_dt{dt_ms:03d}.png"
     )
 
-    figure.savefig(output_path, dpi=300, bbox_inches="tight")
+    figure.savefig(
+        output_path,
+        dpi=300,
+        bbox_inches="tight",
+        pad_inches=0.05,
+    )
+
     plt.close(figure)
 
     return output_path
