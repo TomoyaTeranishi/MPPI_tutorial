@@ -1,0 +1,16 @@
+{
+  "horizon": 50,
+  "prediction_delta_t": 0.02,
+  "prediction_time_s": 1.0,
+  "number_of_sequences": 1402,
+  "number_of_state_predictions": 70100,
+  "number_of_invalid_sequences": 0,
+  "angle_rmse_rad": 0.13876223677253605,
+  "angular_velocity_rmse_rad_s": 0.49115668101903104,
+  "maximum_absolute_angle_error_rad": 0.5935288071632385,
+  "maximum_absolute_angular_velocity_error_rad_s": 1.9392218589782715,
+  "dataset_directory": "data\\datasets\\pendulum\\random_hold1_v001",
+  "model_path": "data\\model_results\\pendulum\\hold1_h050_trial\\best_model.pt",
+  "model_epoch": 8,
+  "model_validation_loss": 0.04924562028190719
+}

@@ -1,0 +1,18 @@
+{
+  "dataset_directory": "data\\datasets\\pendulum\\random_hold1_v001",
+  "normalization_path": "data\\datasets\\pendulum\\random_hold1_v001\\splits\\normalization.npz",
+  "output_directory": "data\\model_results\\pendulum\\hold1_smoke_h005",
+  "horizon": 5,
+  "hidden_size": 32,
+  "batch_size": 64,
+  "number_of_epochs": 2,
+  "learning_rate": 0.001,
+  "seed": 0,
+  "patience": 10,
+  "gradient_clip_norm": 1.0,
+  "device": "cpu",
+  "git_commit": "98064c1ce603ec6b605607d7f58a87ac842ecf58",
+  "created_at": "2026-10-16T16:29:54.317129+09:00",
+  "loss": "sin_mse + cos_mse + angular_velocity_mse",
+  "teacher_forcing": false
+}

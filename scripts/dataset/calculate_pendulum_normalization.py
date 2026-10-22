@@ -1,3 +1,5 @@
+#標準化情報作成
+
 import argparse
 import csv
 import json

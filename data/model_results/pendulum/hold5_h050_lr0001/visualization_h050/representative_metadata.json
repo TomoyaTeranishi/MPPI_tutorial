@@ -1,0 +1,10 @@
+{
+  "selection_method": "sequence closest to the median combined angle and angular velocity RMSE score",
+  "selection_index": 314,
+  "trajectory_id": 1,
+  "start_step": 314,
+  "angle_rmse_rad": 0.5019915699958801,
+  "angular_velocity_rmse_rad_s": 1.6288187503814697,
+  "combined_score": 1.9810527084102976,
+  "median_combined_score": 1.981337144416781
+}
